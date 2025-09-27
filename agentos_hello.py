@@ -12,16 +12,30 @@ from email.header import decode_header
 
 from google.oauth2.credentials import Credentials
 
+import logging
+from pprint import pformat
+import time
+
 
 
 # -------- Utilities --------
 
-def safe_call(fn, *args, **kwargs):
+def safe_call(fn, *args, logger: logging.Logger | None = None, came_from='', **kwargs):
     """Wrap Google API calls: return None on HttpError with a short message."""
+
+    t0 = time.perf_counter()
     try:
-        return fn(*args, **kwargs)
-    except HttpError as e:
-        print(f"[API error] {getattr(e, 'status_code', '')} {e}")
+        resp = fn(*args, **kwargs)
+        if logger and logger.isEnabledFor(logging.DEBUG):
+            dt = (time.perf_counter() - t0) * 1000
+            sample = str(resp)[:500] + ("..." if len(str(resp)) > 500 else "")
+            logger.debug(f"(in safe_call from {came_from}): API OK in {dt:.1f} ms;  sample={sample}")
+        return resp
+    
+    except Exception as e:
+        dt = (time.perf_counter() - t0) * 1000
+        if logger:
+            logger.warning(f"(in safe_call from {came_from}): API error after {dt:.1f} ms: {e}")
         return None
 
 
@@ -38,14 +52,25 @@ def decode_mime_header_value(value: Optional[str]) -> Optional[str]:
     return "".join(out)
 
 
+def setup_logger(debug: bool = False, name: str = 'agent') -> logging.Logger:
+    level = logging.DEBUG if debug else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    return logging.getLogger(name)
+
+
 # -------- Gmail: list + fetch + normalize --------
 
 def gmail_list_unread_ids_exact(
-    service, need: int = 5, label_ids: Tuple[str, ...] = ("INBOX", "UNREAD")
+    service, need: int = 5, label_ids: Tuple[str, ...] = ("INBOX", "UNREAD"), logger: logging.Logger | None = None
 ) -> List[str]:
     ids: List[str] = []
     token: Optional[str] = None
 
+    if logger: logger.debug(f"(in gmail_list_unread_ids_exact): Listing unread emails: need={need}, labels={label_ids}")
     while len(ids) < need:
         resp = safe_call(
             service.users().messages().list(
@@ -53,27 +78,33 @@ def gmail_list_unread_ids_exact(
                 labelIds=list(label_ids),
                 maxResults=min(need - len(ids), 100),
                 pageToken=token,
-            ).execute
+            ).execute,
+            logger=logger,
+            came_from='gmail_list_unread_ids_exact'
         )
         if not resp:
+            if logger: logger.debug("(in gmail_list_unread_ids_exact): No response from Gmail API, stopping.")
             break
         new_msgs = [m["id"] for m in resp.get("messages", [])]
+        if logger: logger.debug(f"(in gmail_list_unread_ids_exact): Fetched: {len(new_msgs)} Total so far: {len(ids) + len(new_msgs)}")
         ids.extend(new_msgs)
         token = resp.get("nextPageToken")
 
         # Defensive breaks: no more token OR this page had no messages
         if not token or not new_msgs:
+            if logger: logger.debug(f"(in gmail_list_unread_ids_exact): Stopping token={bool(token)} new_msgs={len(new_msgs)}")
             break
 
     return ids[:need]
 
 
-def gmail_batch_get(service, ids: List[str]) -> List[Dict[str, Any]]:
+def gmail_batch_get(service, ids: List[str], logger: logging.Logger | None = None) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for mid in ids:
         msg = safe_call(service.users().messages().get(userId="me", id=mid, format="metadata", metadataHeaders=[
             "From", "Subject", "Date"
-        ]).execute)
+        ]).execute, 
+        logger=logger, came_from='gmail_batch_get')
         if msg:
             out.append(msg)
     return out
@@ -99,9 +130,13 @@ def header_lookup(payload_headers: List[Dict[str, str]], name: str) -> Optional[
     return None
 
 
-def gmail_normalize(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def gmail_normalize(msgs: List[Dict[str, Any]], logger: logging.Logger | None = None) -> List[Dict[str, Any]]:
     """Return items with the contract: id, from_name, from_email, subject, date_utc_iso, date_local_iso, snippet, labels"""
     items: List[Dict[str, Any]] = []
+
+    if logger:
+        logger.debug(f"(in gmail_normalize): Normalizing {len(msgs)} gmail messages")
+
     for m in msgs:
         headers = m.get("payload", {}).get("headers", [])
         subj_raw = header_lookup(headers, "Subject")
@@ -139,19 +174,20 @@ def gmail_normalize(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return items
 
 
-def gmail_normalize_unread(service, max_results: int = 5) -> List[Dict[str, Any]]:
-    ids = gmail_list_unread_ids_exact(service, need=max_results)
+def gmail_normalize_unread(service, max_results: int = 5, logger: logging.Logger | None = None) -> List[Dict[str, Any]]:
+    ids = gmail_list_unread_ids_exact(service, need=max_results, logger=logger)
     if not ids:
         return []
-    raw = gmail_batch_get(service, ids)
-    return gmail_normalize(raw)
+    raw = gmail_batch_get(service, ids, logger=logger)
+    return gmail_normalize(raw, logger=logger)
 
 
 # -------- Calendar: window helpers + normalize --------
 
 def cal_list_window(
-    service, start: datetime, end: datetime, calendar_id: str = "primary", n: int = 50
+    service, start: datetime, end: datetime, calendar_id: str = "primary", n: int = 50, logger: logging.Logger | None = None
 ) -> List[Dict[str, Any]]:
+    if logger: logger.debug(f"(in cal_list_window): Listing {n} or less calendar events from {start} to {end}")
     resp = safe_call(
         service.events().list(
             calendarId=calendar_id,
@@ -160,15 +196,19 @@ def cal_list_window(
             singleEvents=True,
             orderBy="startTime",
             maxResults=n,
-        ).execute
+        ).execute,
+        logger=logger, came_from='cal_list_window'
     )
     if not resp:
+        if logger: logger.debug("(in cal_list_window): No response from Calendar API, stopping.")
         return []
+    if logger: logger.debug(f"(in cal_list_window): Stopping: found {len(resp.get('items', []))} events")
     return resp.get("items", [])
 
 
-def calendar_normalize(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def calendar_normalize(items: List[Dict[str, Any]], logger: logging.Logger | None = None) -> List[Dict[str, Any]]:
     out = []
+    if logger: logger.debug(f"(in calendar_normalize): Normalizing {len(items)} calendar events")
     for e in items:
         start = e.get("start", {}) or {}
         end = e.get("end", {}) or {}
@@ -193,10 +233,10 @@ def calendar_normalize(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def calendar_normalize_upcoming(service, n: int = 5) -> List[Dict[str, Any]]:
+def calendar_normalize_upcoming(service, n: int = 5, logger: logging.Logger | None = None) -> List[Dict[str, Any]]:
     now = datetime.now(timezone.utc)
     horizon = now + timedelta(days=30)   # tweak as desired
-    raw = cal_list_window(service, start=now, end=horizon, n=n)
+    raw = cal_list_window(service, start=now, end=horizon, n=n, logger=logger)
     norm = calendar_normalize(raw)
     return norm[:n]
 
@@ -228,10 +268,7 @@ def build_services(credentials) -> Tuple[Any, Any]:
     Assumes you already have OAuth creds flow elsewhere and are now building services.
     Replace with your credential loader as needed.
     """
-    # Example:
-    # from google.oauth2.credentials import Credentials
-    # creds = Credentials.from_authorized_user_file(".credentials/token.json", SCOPES)
-    gmail = build("gmail", "v1", credentials=credentials)       # build(serviceName, version, credentials=creds)
+    gmail = build("gmail", "v1", credentials=credentials)
     cal = build("calendar", "v3", credentials=credentials)
     return gmail, cal
 
@@ -243,14 +280,18 @@ def main():
     parser.add_argument("--emails", type=int, default=5, help="How many unread emails to show")
     parser.add_argument("--events", type=int, default=5, help="How many upcoming events to show")
     parser.add_argument("--json", action="store_true", help="Output in JSON format instead of pretty print")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
+
+    logger = setup_logger(debug=args.debug)
 
     gmail, cal = build_services(creds)
 
-    gmail_items = gmail_normalize_unread(gmail, max_results=args.emails)
-    cal_items = calendar_normalize_upcoming(cal, n=args.events)
+    gmail_items = gmail_normalize_unread(gmail, max_results=args.emails, logger=logger)
+    cal_items = calendar_normalize_upcoming(cal, n=args.events, logger=logger)
 
     if args.json:
+        logger.info("Outputting JSON:")
         payload = {
             "emails": gmail_items,
             "events": cal_items,
