@@ -26,8 +26,16 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Project Secrets
-.credentials/
+# --- Credentials (never commit secrets) ---
+.credentials/*
+!.credentials/.gitkeep
+
+# --- Data files (DBs, logs, cache) ---
+data/*
+!data/.gitkeep
+!data/logs/
+data/logs/*
+!data/logs/.gitkeep
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
