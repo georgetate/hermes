@@ -1,14 +1,14 @@
 # src/agentos/adapters/google/gmail/reader.py
 from __future__ import annotations
 
-import math
 import random
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional, Sequence
+from typing import Optional
 
 from googleapiclient.errors import HttpError
+from googleapiclient.http import HttpRequest
 
 from agentos.logging import get_logger
 from agentos.config import settings
@@ -38,7 +38,7 @@ def _should_retry_http_error(e: HttpError) -> bool:
     return status == 429 or 500 <= status <= 599
 
 
-def _execute_with_retries(request, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0):
+def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0):
     """
     Execute a Google API request with exponential backoff + jitter for 429/5xx.
     """
@@ -126,7 +126,7 @@ def _build_gmail_query(f: Optional[EmailThreadFilter]) -> Optional[str]:
 # -------- Reader implementation --------
 
 @dataclass
-class GmailReader(EmailPort):
+class GmailReader():
     """
     Gmail adapter read-side implementation mapped to the EmailPort.
     - list_threads: summaries via threads.list → threads.get(format="metadata")
@@ -161,7 +161,6 @@ class GmailReader(EmailPort):
         collected: list[EmailThreadSummary] = []
         next_token = cursor
         total_skipped = 0
-        total_retried = 0
 
         # page size to keep latency predictable; fetch more pages if needed
         page_size = min(limit, 100)
@@ -197,6 +196,17 @@ class GmailReader(EmailPort):
                     # Normalize (metadata still has headers/internalDate/snippet)
                     thread = normalize_thread(raw_thread)
                     summary = summarize_thread(thread)
+                    if not include_snippets:
+                        summary = EmailThreadSummary(
+                            id=summary.id,
+                            subject=summary.subject,
+                            last_updated=summary.last_updated,
+                            message_ids=summary.message_ids,
+                            participants=summary.participants,
+                            snippet=None,  # force drop
+                            labels=summary.labels,
+                            unread=summary.unread,
+                        )
                     collected.append(summary)
                 except HttpError as e:
                     # Skip on failure, warn; count retries happened inside _execute_with_retries
@@ -228,7 +238,7 @@ class GmailReader(EmailPort):
         return Page[EmailThreadSummary](
             items=tuple(collected),
             next_cursor=next_token,
-            total=None,  # overall total unknown; len(items) is page size
+            total=None,  # overall total unknown; len(items) is the # of total collected thread summaries
         )
 
     def get_thread(
