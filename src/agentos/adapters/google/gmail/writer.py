@@ -3,16 +3,19 @@ from __future__ import annotations
 
 import base64
 import mimetypes
-import os
+# import os
 import random
 import time
 from dataclasses import dataclass
 from email.message import EmailMessage as PyEmailMessage
 from email.utils import formatdate, make_msgid
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence, Protocol, List, TypedDict
+# from typing import Iterable
 
 from googleapiclient.errors import HttpError
+from googleapiclient.http import HttpRequest
+
 
 from agentos.config import settings
 from agentos.logging import get_logger
@@ -37,7 +40,7 @@ def _should_retry_http_error(e: HttpError) -> bool:
     return status == 429 or 500 <= status <= 599
 
 
-def _execute_with_retries(request, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0):
+def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0):
     attempt = 0
     while True:
         attempt += 1
@@ -105,7 +108,40 @@ def _encode_message_to_raw(msg: PyEmailMessage) -> str:
     return b64
 
 
-def _get_profile_email(service) -> Optional[str]:
+# --- custom typing surface for JUST what we call on the Gmail discovery client ---
+class _ThreadsResource(Protocol):
+    def get(
+        self,
+        *,
+        userId: str,
+        id: str,
+        format: str,
+        metadataHeaders: List[str],
+    ) -> HttpRequest: ...
+
+class _UsersResource(Protocol):
+    def threads(self) -> _ThreadsResource: ...
+    def getProfile(self, *, userId: str) -> HttpRequest: ...
+
+class GmailLikeService(Protocol):
+    def users(self) -> _UsersResource: ...
+
+# --- TypedDicts for the shapes we actually read from the thread metadata response ---
+class _Header(TypedDict, total=False):
+    name: str
+    value: str
+
+class _Payload(TypedDict, total=False):
+    headers: List[_Header]
+
+class _Message(TypedDict, total=False):
+    payload: _Payload
+
+class _ThreadResponse(TypedDict, total=False):
+    messages: List[_Message]
+
+
+def _get_profile_email(service: GmailLikeService) -> Optional[str]:
     # users.getProfile → {"emailAddress": "...", ...}
     try:
         prof = _execute_with_retries(service.users().getProfile(userId=settings.gmail_user_id))
@@ -115,7 +151,7 @@ def _get_profile_email(service) -> Optional[str]:
 
 
 def _compute_reply_all_recipients(
-    service,
+    service: GmailLikeService,
     draft: ReplyDraft,
     my_email: Optional[str],
 ) -> tuple[list[EmailAddress], list[EmailAddress]]:
@@ -133,7 +169,7 @@ def _compute_reply_all_recipients(
         return to_addrs, cc_addrs
 
     try:
-        t = _execute_with_retries(
+        t: _ThreadResponse = _execute_with_retries(
             service.users().threads().get(
                 userId=settings.gmail_user_id,
                 id=draft.thread_id,
@@ -146,10 +182,10 @@ def _compute_reply_all_recipients(
 
     # Find target message inside thread (by Message-Id) or use last
     messages = t.get("messages", []) or []
-    target = None
+    target: Optional[_Message] = None
     if draft.reference_message_id:
         for m in messages:
-            headers = {h["name"].lower(): h.get("value") for h in (m.get("payload", {}).get("headers") or [])}
+            headers = {h.get("name", "").lower(): h.get("value") for h in (m.get("payload", {}).get("headers") or [])}
             if headers.get("message-id") == draft.reference_message_id:
                 target = m
                 break
@@ -159,15 +195,15 @@ def _compute_reply_all_recipients(
     if not target:
         return to_addrs, cc_addrs
 
-    headers = {h["name"].lower(): h.get("value") for h in (target.get("payload", {}).get("headers") or [])}
+    headers = {h.get("name", "").lower(): h.get("value") for h in (target.get("payload", {}).get("headers") or [])}
 
     # Parse addresses
     from email.utils import getaddresses
-    to_list = [EmailAddress(email=a[1], name=a[0] or None) for a in getaddresses([headers.get("to", "")])]
-    cc_list = [EmailAddress(email a[1], name=a[0] or None) for a in getaddresses([headers.get("cc", "")])]  # type: ignore  # noqa: E231
+    to_list = [EmailAddress(email=a[1], name=a[0] or None) for a in getaddresses([headers.get("to", "") or ""])]
+    cc_list = [EmailAddress(email=a[1], name=a[0] or None) for a in getaddresses([headers.get("cc", "") or ""])]
 
     # Determine main "reply to" target = original sender
-    from_list = [EmailAddress(email=a[1], name=a[0] or None) for a in getaddresses([headers.get("from", "")])]
+    from_list = [EmailAddress(email=a[1], name=a[0] or None) for a in getaddresses([headers.get("from", "") or ""])]
     original_sender = from_list[0] if from_list else None
 
     def _not_me(a: EmailAddress) -> bool:

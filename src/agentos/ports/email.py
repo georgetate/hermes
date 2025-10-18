@@ -11,7 +11,13 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class Page(Generic[T]):
-    """Generic page of results."""
+    """
+    A single page of results.
+    - items: results in this page
+    - next_cursor: opaque token to fetch the next page (None = no more)
+    - total: total number of results across ALL pages, if the provider supplies it;
+             otherwise None. Not the size of this page.
+    """
     items: Sequence[T]
     next_cursor: Optional[str] = None   # Opaque token for subsequent page
     total: Optional[int] = None         # Optional total count if provider can supply
