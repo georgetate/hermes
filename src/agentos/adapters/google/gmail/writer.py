@@ -3,15 +3,15 @@ from __future__ import annotations
 
 import base64
 import mimetypes
-# import os
+
 import random
 import time
 from dataclasses import dataclass
 from email.message import EmailMessage as PyEmailMessage
 from email.utils import formatdate, make_msgid
 from pathlib import Path
-from typing import Optional, Sequence, Protocol, List, TypedDict
-# from typing import Iterable
+from typing import Optional, Sequence, Protocol, TypeVar, List, TypedDict, cast
+
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
@@ -34,18 +34,20 @@ log = get_logger(__name__)
 
 def _should_retry_http_error(e: HttpError) -> bool:
     try:
-        status = int(getattr(e, "status_code", None) or e.resp.status)  # type: ignore[attr-defined]
+        status = int(getattr(e, "status_code", None) or e.resp.status)  
     except Exception:
         return False
     return status == 429 or 500 <= status <= 599
 
 
-def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0):
+T = TypeVar('T')
+def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0) -> T: # type: ignore
     attempt = 0
     while True:
         attempt += 1
         try:
-            return request.execute()
+            result = request.execute()
+            return cast(T, result)
         except HttpError as e:
             if attempt < max_attempts and _should_retry_http_error(e):
                 delay = min(cap_s, base_delay * (2 ** (attempt - 1)))
