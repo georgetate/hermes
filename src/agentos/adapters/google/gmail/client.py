@@ -15,7 +15,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # Project logging & config
-from agentos.logging import get_logger
+from agentos.logging_utils import get_logger
 from agentos.config import settings  # single source of truth
 
 log = get_logger(__name__)

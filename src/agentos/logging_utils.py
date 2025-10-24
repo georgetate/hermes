@@ -21,7 +21,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import settings
+from agentos.config import settings
 
 
 EMAIL_RE = re.compile(r"(?i)([a-z0-9._%+-]+)@([a-z0-9.-]+\.[a-z]{2,})")

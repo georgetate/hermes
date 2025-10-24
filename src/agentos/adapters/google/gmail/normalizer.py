@@ -7,7 +7,7 @@ from base64 import urlsafe_b64decode
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
-from agentos.logging import get_logger
+from agentos.logging_utils import get_logger
 from agentos.ports.email import (
     AttachmentMeta,
     EmailAddress,

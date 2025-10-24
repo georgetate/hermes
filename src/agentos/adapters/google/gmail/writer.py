@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from email.message import EmailMessage as PyEmailMessage
 from email.utils import formatdate, make_msgid
 from pathlib import Path
-from typing import Optional, Sequence, Protocol, TypeVar, List, TypedDict, cast
+from typing import Optional, Sequence, Protocol, TypeVar, List, Any, TypedDict, cast
 
 
 from googleapiclient.errors import HttpError
@@ -18,11 +18,10 @@ from googleapiclient.http import HttpRequest
 
 
 from agentos.config import settings
-from agentos.logging import get_logger
+from agentos.logging_utils import get_logger
 from agentos.adapters.google.gmail.client import GmailClient, GmailClientConfig
 from agentos.ports.email import (
     EmailAddress,
-    EmailPort,
     NewEmailDraft,
     ReplyDraft,
 )
@@ -233,10 +232,28 @@ def _apply_reply_headers(msg: PyEmailMessage, draft: ReplyDraft) -> None:
         msg["References"] = draft.reference_message_id
 
 
+def _normalize_addresses(addrs: Sequence[str | EmailAddress] | None) -> list[EmailAddress]:
+    """
+    Ensures all items in the list are EmailAddress objects.
+    Accepts raw strings or already-built EmailAddress instances.
+    """
+    if not addrs:
+        return []
+    normalized: list[EmailAddress] = []
+    for addr in addrs:
+        if isinstance(addr, EmailAddress):
+            normalized.append(addr)
+        elif isinstance(addr, str):
+            normalized.append(EmailAddress(email=addr))
+        else:
+            raise TypeError(f"Unsupported address type: {type(addr)}")
+    return normalized
+
+
 # ----------------------------- writer -----------------------------
 
 @dataclass
-class GmailWriter(EmailPort):
+class GmailWriter():
     """
     Gmail write-side implementation of the EmailPort's draft/send methods.
     """
@@ -247,6 +264,44 @@ class GmailWriter(EmailPort):
         return cls(client=GmailClient(GmailClientConfig.from_settings_or_env()))
 
     # --- Writes ---
+
+    @classmethod
+    def _build_draft_new(
+        cls,
+        to: list[str],
+        subject: str,
+        body_text: str = "",
+        body_html: str | None = None,
+        cc: list[str] | None = None,
+        bcc: list[str] | None = None,
+        attachment_paths: list[str] | None = None,
+    ) -> NewEmailDraft:
+        return NewEmailDraft(
+            to=_normalize_addresses(to),
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            cc=_normalize_addresses(cc),
+            bcc=_normalize_addresses(bcc),
+            attachment_paths=attachment_paths,
+        )
+    
+    @classmethod
+    def _build_draft_reply(
+        cls,
+        thread_id: str,
+        body_text: str = "",
+        body_html: str | None = None,
+        attachment_paths: list[str] | None = None,
+        reply_all: bool = False,
+    ) -> ReplyDraft:
+        return ReplyDraft(
+            thread_id=thread_id,
+            body_text=body_text,
+            body_html=body_html,
+            attachment_paths=attachment_paths or [],
+            reply_all=reply_all,
+        )
 
     def create_draft_new(self, draft: NewEmailDraft) -> str:
         service = self.client.get_service()

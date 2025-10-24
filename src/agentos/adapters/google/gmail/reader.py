@@ -10,7 +10,7 @@ from typing import Optional
 from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
 
-from agentos.logging import get_logger
+from agentos.logging_utils import get_logger
 from agentos.config import settings
 from agentos.adapters.google.gmail.client import GmailClient, GmailClientConfig
 from agentos.adapters.google.gmail.normalizer import (
@@ -18,7 +18,6 @@ from agentos.adapters.google.gmail.normalizer import (
     summarize_thread,
 )
 from agentos.ports.email import (
-    EmailPort,
     EmailThread,
     EmailThreadFilter,
     EmailThreadSummary,
