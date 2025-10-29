@@ -266,7 +266,7 @@ class GmailWriter():
     # --- Writes ---
 
     @classmethod
-    def _build_draft_new(
+    def _build_new_draft(
         cls,
         to: list[str],
         subject: str,
@@ -287,23 +287,37 @@ class GmailWriter():
         )
     
     @classmethod
-    def _build_draft_reply(
+    def _build_reply_draft(
         cls,
         thread_id: str,
         body_text: str = "",
         body_html: str | None = None,
         attachment_paths: list[str] | None = None,
         reply_all: bool = False,
+        reference_message_id: str | None = None,
     ) -> ReplyDraft:
+        """
+        Factory for a reply draft tied to an existing Gmail thread.
+        If reply_all is False, reference_message_id must be provided to indicate
+        which specific message this reply targets.
+        """
+        if not reply_all and not reference_message_id:
+            raise ValueError(
+                "reference_message_id is required when reply_all=False "
+                "(must specify which message to reply to)."
+            )
+
         return ReplyDraft(
             thread_id=thread_id,
             body_text=body_text,
             body_html=body_html,
             attachment_paths=attachment_paths or [],
             reply_all=reply_all,
+            reference_message_id=reference_message_id,
         )
 
-    def create_draft_new(self, draft: NewEmailDraft) -> str:
+
+    def create_new_draft(self, draft: NewEmailDraft) -> str:
         service = self.client.get_service()
 
         msg = PyEmailMessage()
@@ -345,10 +359,15 @@ class GmailWriter():
         log.info("gmail.writer.create_draft_new_done", extra={"draft_id": draft_id})
         return draft_id
 
-    def create_draft_reply(self, draft: ReplyDraft) -> str:
+    def create_reply_draft(self, draft: ReplyDraft, allow_reply_self: bool = False) -> str:
         service = self.client.get_service()
-        my_email = _get_profile_email(service)
+        if not allow_reply_self:
+            my_email = _get_profile_email(service)
+        else:
+            my_email = None
+            log.debug("gmail.writer.reply_self_allowed", extra={"thread_id": draft.thread_id})
 
+        
         # Build MIME
         msg = PyEmailMessage()
         msg["Subject"] = ""  # Gmail UI typically prefixes "Re:" automatically; leaving blank is okay
@@ -359,7 +378,7 @@ class GmailWriter():
         _apply_reply_headers(msg, draft)
 
         # Recipients per reply_all policy
-        to_addrs, cc_addrs = _compute_reply_all_recipients(service, draft, my_email)
+        to_addrs, cc_addrs = _compute_reply_all_recipients(service, draft, my_email=my_email)
         to_str = _addr_list_to_str(to_addrs)
         cc_str = _addr_list_to_str(cc_addrs)
         if to_str:

@@ -261,4 +261,9 @@ class GmailReader():
             "gmail.reader.get_thread_done",
             extra={"thread_id": thread_id, "include_bodies": include_bodies, "message_count": len(thread.messages)},
         )
-        return thread
+        return EmailThread(
+            id=thread.id,
+            subject=thread.subject,
+            last_updated=thread.last_updated,
+            labels=thread.labels,
+            messages=thread.messages)
