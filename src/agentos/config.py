@@ -62,12 +62,19 @@ class Settings(BaseSettings):
         "https://www.googleapis.com/auth/calendar.readonly",
     )
 
-    # NEW: adapter-level defaults pulled by gmail/client.py and gcal/client.py
+    # --- providers: Google Gmail ---
     gmail_api_version: str = "v1"
     gmail_user_id: str = "me"
+
+    # --- providers: Google Calendar ---
+    gcal_api_version: str = "v3"
+    gcal_calendar_id: str = "primary"
+
+    # --- shared OAuth + app defaults ---
     oauth_headless: bool = False
     oauth_port: int = 0           # 0 lets Google pick an open port
     app_user_agent: str = "agentos/0.1"
+
 
     # --- providers: OpenAI / LLM ---
     openai_api_key: SecretStr | None = Field(default=None)
