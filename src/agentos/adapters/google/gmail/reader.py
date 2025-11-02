@@ -12,7 +12,7 @@ from googleapiclient.http import HttpRequest
 
 from agentos.logging_utils import get_logger
 from agentos.config import settings
-from agentos.adapters.google.gmail.client import GmailClient, GmailClientConfig
+from agentos.adapters.google.gmail.client import get_gmail_service, GmailClient
 from agentos.adapters.google.gmail.normalizer import (
     normalize_thread,
     summarize_thread,
@@ -135,7 +135,7 @@ class GmailReader():
 
     @classmethod
     def from_settings(cls) -> "GmailReader":
-        return cls(client=GmailClient(GmailClientConfig.from_settings_or_env()))
+        return cls(client=GmailClient(get_gmail_service()))
 
     # --- Reads (threads-first) ---
 
