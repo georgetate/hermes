@@ -5,14 +5,14 @@ import random
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, TypeVar, cast
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
 
 from agentos.logging_utils import get_logger
 from agentos.config import settings
-from agentos.adapters.google.gmail.client import get_gmail_service, GmailClient
+from agentos.adapters.google.gmail.client import GmailClient
 from agentos.adapters.google.gmail.normalizer import (
     normalize_thread,
     summarize_thread,
@@ -36,8 +36,8 @@ def _should_retry_http_error(e: HttpError) -> bool:
         return False
     return status == 429 or 500 <= status <= 599
 
-
-def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0):
+T = TypeVar('T')
+def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0) -> T: # type: ignore
     """
     Execute a Google API request with exponential backoff + jitter for 429/5xx.
     """
@@ -45,7 +45,8 @@ def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_d
     while True:
         attempt += 1
         try:
-            return request.execute()
+            result = request.execute()
+            return cast(T, result)
         except HttpError as e:
             if attempt < max_attempts and _should_retry_http_error(e):
                 # exponential backoff with jitter
@@ -131,11 +132,9 @@ class GmailReader():
     - list_threads: summaries via threads.list → threads.get(format="metadata")
     - get_thread: metadata or full, then normalize
     """
-    client: GmailClient
 
-    @classmethod
-    def from_settings(cls) -> "GmailReader":
-        return cls(client=GmailClient(get_gmail_service()))
+    def __init__(self, client: Optional[GmailClient] = None) -> None:
+        self.client = client or GmailClient.from_settings()
 
     # --- Reads (threads-first) ---
 

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional, Sequence, Tuple, List, Iterable
+from typing import Any, Optional, Sequence, Tuple, List
 from zoneinfo import ZoneInfo
 
 from agentos.logging_utils import get_logger
@@ -43,7 +42,7 @@ def _parse_rfc3339(s: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _dt_all_day(date_str: str, tz_name: Optional[str]) -> Tuple[datetime, datetime]:
+def _dt_all_day(date_str: str, tz_name: Optional[str]) -> TimeRange:
     """
     Create [start=00:00, end=next-day 00:00) in the provided tz for an all-day event date string "YYYY-MM-DD".
     """
@@ -56,12 +55,12 @@ def _dt_all_day(date_str: str, tz_name: Optional[str]) -> Tuple[datetime, dateti
         y, m, d = map(int, date_str.split("-"))
         start = datetime(y, m, d, 0, 0, tzinfo=tz)
         end = start + timedelta(days=1)
-        return start, end
+        return TimeRange(start=start, end=end)
     except Exception:
         log.warning("gcal.normalizer.allday_parse_failed", extra={"date": date_str, "tz": tz_name})
         # Fallback to "today" in UTC if badly malformed (rare)
-        now = datetime.now(timezone.utc)
-        return now.replace(hour=0, minute=0, second=0, microsecond=0), now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        return TimeRange(start=today, end=today + timedelta(days=1))
 
 
 def _resolve_event_times(
@@ -113,19 +112,20 @@ def _resolve_event_times(
             s_dt = s_dt or now
             e_dt = e_dt or (s_dt + timedelta(hours=1))
 
-        return s_dt, e_dt, False, canonical_tz
+        return (s_dt, e_dt, False, canonical_tz)
 
     # Case 2: date (all-day)
     if "date" in start_obj and "date" in end_obj:
-        s, e = _dt_all_day(start_obj["date"], start_tz)
+        all_day_range = _dt_all_day(start_obj["date"], start_tz)
+        s, e = all_day_range.start, all_day_range.end
         # Google end.date for all-day is usually the next calendar day; our spec
         # requires exclusive next-day end at 00:00 in event tz already, so we ignore raw end.date.
-        return s, e, True, canonical_tz
+        return (s, e, True, canonical_tz)
 
     # Fallback: unknown structure — try best effort
     log.warning("gcal.normalizer.unknown_time_format", extra={"event_id": raw.get("id")})
     now = datetime.now(timezone.utc)
-    return now, now + timedelta(hours=1), False, canonical_tz
+    return (now, now + timedelta(hours=1), False, canonical_tz)
 
 
 def _has_conference(raw: dict[str, Any]) -> bool:

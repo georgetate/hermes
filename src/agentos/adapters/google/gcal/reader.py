@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import random
+import time
 import base64
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, cast
+from datetime import timezone
+from typing import Any, Dict, Iterable, List, Optional, Sequence, TypeVar, cast
+
+from googleapiclient.errors import HttpError
+from googleapiclient.http import HttpRequest
 
 from agentos.adapters.google.gcal.client import GCalClient
 from agentos.adapters.google.gcal.normalizer import (
@@ -25,6 +30,38 @@ from agentos.ports.calendar import (
 )
 
 log = get_logger(__name__)
+
+
+# ----------------------------- retry/backoff -----------------------------
+
+def _should_retry_http_error(e: HttpError) -> bool:
+    try:
+        status = int(getattr(e, "status_code", None) or e.resp.status)  
+    except Exception:
+        return False
+    return status == 429 or 500 <= status <= 599
+
+
+T = TypeVar('T')
+def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0) -> T: # type: ignore
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            result = request.execute()
+            return cast(T, result)
+        except HttpError as e:
+            if attempt < max_attempts and _should_retry_http_error(e):
+                delay = min(cap_s, base_delay * (2 ** (attempt - 1)))
+                delay = delay * (0.5 + random.random())  # jitter in [0.5x, 1.5x]
+                log.warning(
+                    "gcal.writer.retrying_http_error",
+                    extra={"attempt": attempt, "max_attempts": max_attempts, "delay_s": round(delay, 3)},
+                )
+                time.sleep(delay)
+                continue
+            log.exception("gcal.writer.request_failed")
+            raise
 
 
 # ----------------------------- cursor codec -----------------------------
@@ -99,20 +136,20 @@ class GCalReader:
 
     def list_calendars(self) -> Sequence[CalendarRef]:
         try:
-            svc = self.client.get_service()
+            service = self.client.get_service()
             # calendarList.list is paginated; most users have few calendars, but paginate defensively
             out: List[CalendarRef] = []
             token: Optional[str] = None
             while True:
                 req = (
-                    svc.calendarList()
+                    service.calendarList()
                     .list(
                         pageToken=token,
                         minAccessRole="reader",  # show readable calendars
                         maxResults=250,
                     )
                 )
-                resp = req.execute()
+                resp = _execute_with_retries(req)
                 for raw in resp.get("items", []) or []:
                     ref = normalize_calendar_ref(raw)
                     if ref:
@@ -142,7 +179,7 @@ class GCalReader:
         Return EventSummary rows across one or many calendars with stable pagination.
         """
         try:
-            svc = self.client.get_service()
+            service = self.client.get_service()
 
             # Determine calendars to search
             if calendar_ids is None or len(calendar_ids) == 0:
@@ -184,8 +221,8 @@ class GCalReader:
                     params["orderBy"] = order_by
 
                 # For 'singleEvents=False', Google returns series masters; for True, concrete instances.
-                req = svc.events().list(**params)
-                resp = req.execute()
+                req = service.events().list(**params)
+                resp = _execute_with_retries(req)
 
                 items = resp.get("items", []) or []
                 # Defensive: if include_cancelled=False, filter out status=cancelled that can sneak in
@@ -246,8 +283,9 @@ class GCalReader:
 
     def get_event(self, event_id: str, calendar_id: str) -> Event:
         try:
-            svc = self.client.get_service()
-            resp = svc.events().get(calendarId=calendar_id, eventId=event_id).execute()
+            service = self.client.get_service()
+            req = service.events().get(calendarId=calendar_id, eventId=event_id)
+            resp = _execute_with_retries(req)
             evt = normalize_event_full(resp, calendar_id=calendar_id, calendar_tz=None)
             if not evt:
                 raise RuntimeError("Failed to normalize event")

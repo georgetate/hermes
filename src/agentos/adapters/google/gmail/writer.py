@@ -19,7 +19,7 @@ from googleapiclient.http import HttpRequest
 
 from agentos.config import settings
 from agentos.logging_utils import get_logger
-from agentos.adapters.google.gmail.client import GmailClient, get_gmail_service
+from agentos.adapters.google.gmail.client import GmailClient
 from agentos.ports.email import (
     EmailAddress,
     NewEmailDraft,
@@ -257,11 +257,9 @@ class GmailWriter():
     """
     Gmail write-side implementation of the EmailPort's draft/send methods.
     """
-    client: GmailClient
-
-    @classmethod
-    def from_settings(cls) -> "GmailWriter":
-        return cls(client=GmailClient(get_gmail_service()))
+    
+    def __init__(self, client: Optional[GmailClient] = None) -> None:
+        self.client = client or GmailClient.from_settings()
 
     # --- Writes ---
 

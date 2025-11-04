@@ -1,6 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Sequence
-from pathlib import Path
+from typing import Optional
 
 from agentos.adapters.google.base_client import GoogleClient, GoogleClientConfig
 from agentos.config import settings
