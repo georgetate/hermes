@@ -184,7 +184,7 @@ class GCalReader:
             # Determine calendars to search
             if calendar_ids is None or len(calendar_ids) == 0:
                 # Default to the configured user calendar (usually "primary")
-                calendar_ids = (settings.gcal_user_id,)  # type: ignore[attr-defined]
+                calendar_ids = (settings.gcal_calendar_id,)  # type: ignore[attr-defined]
             calendars = list(calendar_ids)
 
             # Decode composite cursor

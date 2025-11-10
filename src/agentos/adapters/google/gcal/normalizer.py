@@ -354,6 +354,7 @@ def normalize_event_summary(
             series_id=series_id,
             recurrence=recurrence if (recurrence and not is_instance) else None,
             has_conference_link=_has_conference(raw),
+            status=raw.get("status"),
         )
     except Exception as e:
         log.warning("gcal.normalizer.event_summary_failed", extra={"error": str(e), "event_id": raw.get("id")})
@@ -394,6 +395,7 @@ def normalize_event_full(
             has_conference_link=_has_conference(raw),
             recurrence=recurrence,
             series_id=series_id,
+            status=raw.get("status"),
         )
     except Exception as e:
         log.warning("gcal.normalizer.event_full_failed", extra={"error": str(e), "event_id": raw.get("id")})
