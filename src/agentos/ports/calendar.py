@@ -199,16 +199,7 @@ class CalendarPort(Protocol):
         the concrete instance with `series_id` set to the master.
         """
         raise NotImplementedError
-
-    # --- Writes ---
-
-    def create_event(self, calendar_id: str, event: NewEvent) -> str:
-        """
-        Create a one-off or recurring event under the specified calendar.
-        Returns the created event id (series master id if recurring).
-        """
-        raise NotImplementedError
-
+    
     # --- Convenience (windowed expansion) ---
 
     def find_between(
@@ -223,3 +214,55 @@ class CalendarPort(Protocol):
         (adapters may internally call list_events(expand='instances') + get_event or an optimized API).
         """
         raise NotImplementedError
+    
+    # --- Writes ---
+    def _build_new_event(
+        self,
+        *,
+        title: str,
+        time_range: Optional[TimeRange] = None,
+        start: datetime,
+        end: datetime,
+        all_day: bool = False,
+        timezone: Optional[str] = None,
+        location: Optional[str] = None,
+        description: Optional[str] = None,
+        attendees: Optional[Sequence[Attendee]] = None,
+        reminders: Optional[Sequence[Reminder]] = None,
+        has_conference_link: Optional[bool] = None,
+        recurrence: Optional[Recurrence] = None,
+    ) -> NewEvent:
+        """
+        Factory method for constructing a provider-agnostic `NewEvent` DTO.
+        Adapters should normalize timezone awareness and safely populate optional fields.
+        """
+        raise NotImplementedError
+
+    def create_event(self, calendar_id: str, event: NewEvent) -> str:
+        """
+        Create a one-off or recurring event under the specified calendar.
+        Returns the created event id (series master id if recurring).
+        """
+        raise NotImplementedError
+
+    def delete_event(self, calendar_id: str, event_id: str) -> None:
+        """
+        Delete a single event (or recurring master) by id.
+        Implementations should propagate provider-specific deletion behavior.
+        """
+        raise NotImplementedError
+    
+    def delete_all_after(
+        self,
+        calendar_id: str,
+        master_event_id: str,
+        cutoff_start: datetime,
+        *,
+        send_updates: bool = True,
+    ) -> None:
+        """
+        Delete a single event (or recurring master) by id.
+        Implementations should propagate provider-specific deletion behavior.
+        """
+        raise NotImplementedError
+    
