@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Sequence, TypeVar, cast
 import random
 
@@ -10,7 +10,7 @@ from googleapiclient.http import HttpRequest
 from zoneinfo import ZoneInfo
 
 from agentos.adapters.google.gcal.client import GCalClient
-from agentos.adapters.google.gcal.normalizer import build_event_insert_body, _parse_rfc3339
+from agentos.adapters.google.gcal.normalizer import build_event_insert_body
 from agentos.logging_utils import get_logger
 from agentos.ports.calendar import (
     Attendee,
@@ -77,8 +77,8 @@ class GCalWriter:
         *,
         title: str,
         time_range: Optional[TimeRange] = None,
-        start: datetime,
-        end: datetime,
+        start: Optional[datetime],
+        end: Optional[datetime],
         all_day: bool = False,
         timezone: Optional[str] = None,
         location: Optional[str] = None,

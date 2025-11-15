@@ -253,7 +253,7 @@ def _normalize_addresses(addrs: Sequence[str | EmailAddress] | None) -> list[Ema
 # ----------------------------- writer -----------------------------
 
 @dataclass
-class GmailWriter():
+class GmailWriter:
     """
     Gmail write-side implementation of the EmailPort's draft/send methods.
     """

@@ -126,7 +126,7 @@ def _build_gmail_query(f: Optional[EmailThreadFilter]) -> Optional[str]:
 # -------- Reader implementation --------
 
 @dataclass
-class GmailReader():
+class GmailReader:
     """
     Gmail adapter read-side implementation mapped to the EmailPort.
     - list_threads: summaries via threads.list → threads.get(format="metadata")
