@@ -5,7 +5,7 @@ import time
 import base64
 import json
 from dataclasses import dataclass
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, TypeVar, cast
 
 from googleapiclient.errors import HttpError
@@ -26,7 +26,6 @@ from agentos.ports.calendar import (
     EventSummary,
     ExpandMode,
     Page,
-    TimeRange,
 )
 
 log = get_logger(__name__)
@@ -36,14 +35,22 @@ log = get_logger(__name__)
 
 def _should_retry_http_error(e: HttpError) -> bool:
     try:
-        status = int(getattr(e, "status_code", None) or e.resp.status)  
+        status = int(getattr(e, "status_code", None) or e.resp.status)
     except Exception:
         return False
     return status == 429 or 500 <= status <= 599
 
 
-T = TypeVar('T')
-def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_delay: float = 0.5, cap_s: float = 8.0) -> T: # type: ignore
+T = TypeVar("T")
+
+
+def _execute_with_retries(
+    request: HttpRequest,
+    *,
+    max_attempts: int = 3,
+    base_delay: float = 0.5,
+    cap_s: float = 8.0,
+) -> T:  # type: ignore
     attempt = 0
     while True:
         attempt += 1
@@ -56,7 +63,11 @@ def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_d
                 delay = delay * (0.5 + random.random())  # jitter in [0.5x, 1.5x]
                 log.warning(
                     "gcal.writer.retrying_http_error",
-                    extra={"attempt": attempt, "max_attempts": max_attempts, "delay_s": round(delay, 3)},
+                    extra={
+                        "attempt": attempt,
+                        "max_attempts": max_attempts,
+                        "delay_s": round(delay, 3),
+                    },
                 )
                 time.sleep(delay)
                 continue
@@ -73,7 +84,9 @@ class _Cursor:
     page_token: Optional[str]
 
     def encode(self) -> str:
-        raw = json.dumps({"ci": self.cal_index, "pt": self.page_token or ""}).encode("utf-8")
+        raw = json.dumps({"ci": self.cal_index, "pt": self.page_token or ""}).encode(
+            "utf-8"
+        )
         return base64.urlsafe_b64encode(raw).decode("ascii")
 
     @staticmethod
@@ -81,8 +94,13 @@ class _Cursor:
         if not s:
             return _Cursor(cal_index=0, page_token=None)
         try:
-            data = json.loads(base64.urlsafe_b64decode(s.encode("ascii")).decode("utf-8"))
-            return _Cursor(cal_index=int(data.get("ci", 0)), page_token=(data.get("pt") or None))
+            data = json.loads(
+                base64.urlsafe_b64decode(s.encode("ascii")).decode("utf-8")
+            )
+            return _Cursor(
+                cal_index=int(data.get("ci", 0)),
+                page_token=(data.get("pt") or None),
+            )
         except Exception:
             # Corrupt/foreign cursor → start over
             return _Cursor(cal_index=0, page_token=None)
@@ -111,7 +129,9 @@ def _build_q(filters: Optional[EventFilter]) -> Optional[str]:
     return q or None
 
 
-def _post_filter_has_conference(items: Iterable[EventSummary], flag: Optional[bool]) -> List[EventSummary]:
+def _post_filter_has_conference(
+    items: Iterable[EventSummary], flag: Optional[bool]
+) -> List[EventSummary]:
     if flag is None:
         return list(items)
     if flag is True:
@@ -126,7 +146,8 @@ class GCalReader:
     """
     Google Calendar read adapter.
     - Provides list_calendars(), list_events(), get_event(), find_between()
-    - Aggregates across multiple calendars with a composite cursor.
+    - Aggregates across multiple calendars with a composite cursor (windowed mode).
+    - Supports full sync (initial) and incremental sync (delta) via syncToken.
     """
 
     def __init__(self, client: Optional[GCalClient] = None) -> None:
@@ -141,13 +162,10 @@ class GCalReader:
             out: List[CalendarRef] = []
             token: Optional[str] = None
             while True:
-                req = (
-                    service.calendarList()
-                    .list(
-                        pageToken=token,
-                        minAccessRole="reader",  # show readable calendars
-                        maxResults=250,
-                    )
+                req = service.calendarList().list(
+                    pageToken=token,
+                    minAccessRole="reader",  # show readable calendars
+                    maxResults=250,
                 )
                 resp = _execute_with_retries(req)
                 for raw in resp.get("items", []) or []:
@@ -159,15 +177,20 @@ class GCalReader:
                     break
             return tuple(out)
         except Exception as e:
-            log.warning("gcal.reader.list_calendars_failed", extra={"error": str(e)})
+            log.warning(
+                "gcal.reader.list_calendars_failed",
+                extra={"error": str(e)},
+            )
             raise
 
-    # ---------- Reads (summaries) ----------
+    # ---------- Public list_events dispatcher ----------
 
     def list_events(
         self,
-        window: TimeRange,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
         *,
+        sync_token: Optional[str] = None,
         calendar_ids: Optional[Sequence[str]] = None,
         include_cancelled: bool = False,
         expand: ExpandMode = "none",
@@ -177,107 +200,352 @@ class GCalReader:
     ) -> Page[EventSummary]:
         """
         Return EventSummary rows across one or many calendars with stable pagination.
+
+        Modes:
+        - Incremental sync: sync_token is not None (single calendar, no start/end).
+        - Full sync: sync_token is None and start/end are both None (single calendar).
+        - Windowed list: start/end specify a time range (multi-calendar with composite cursor).
+
+        Note:
+        Limit is required for windowed mode but unused for full sync and incremental sync modes, which always exhaust all pages.
         """
         try:
             service = self.client.get_service()
 
             # Determine calendars to search
-            if calendar_ids is None or len(calendar_ids) == 0:
+            if not calendar_ids:
                 # Default to the configured user calendar (usually "primary")
                 calendar_ids = (settings.gcal_calendar_id,)  # type: ignore[attr-defined]
             calendars = list(calendar_ids)
 
-            # Decode composite cursor
-            c = _Cursor.decode(cursor)
-            cal_index = c.cal_index
-            page_token = c.page_token
+            # Mode dispatch
+            if sync_token is not None:
+                if start is not None or end is not None:
+                    raise ValueError("sync_token mode cannot be combined with start/end")
+                return self._list_events_incremental(
+                    service=service,
+                    calendars=calendars,
+                    sync_token=sync_token,
+                    include_cancelled=include_cancelled,
+                    filters=filters,
+                )
 
-            single_events = expand == "instances"
-            order_by = "startTime" if single_events else None
+            if start is None and end is None:
+                return self._list_events_full(
+                    service=service,
+                    calendars=calendars,
+                    include_cancelled=include_cancelled,
+                    expand=expand,
+                    filters=filters
+                )
 
-            q = _build_q(filters)
+            if start is None or end is None:
+                raise ValueError("Both start and end must be provided for windowed mode")
 
-            # Google page size cap is 250; we cap at 100 to keep latency predictable (mirrors Gmail choice)
-            page_size = min(limit, 100)
-            collected: List[EventSummary] = []
-            next_cursor: Optional[str] = None
-
-            while cal_index < len(calendars) and len(collected) < limit:
-                cal_id = calendars[cal_index]
-
-                params: Dict[str, Any] = {
-                    "calendarId": cal_id,
-                    "singleEvents": single_events,
-                    "timeMin": window.start.astimezone(timezone.utc).isoformat(),
-                    "timeMax": window.end.astimezone(timezone.utc).isoformat(),
-                    "showDeleted": include_cancelled,  # Google uses 'cancelled' status; this exposes them
-                    "maxResults": page_size,
-                }
-                if page_token:
-                    params["pageToken"] = page_token
-                if q:
-                    params["q"] = q
-                if order_by:
-                    params["orderBy"] = order_by
-
-                # For 'singleEvents=False', Google returns series masters; for True, concrete instances.
-                req = service.events().list(**params)
-                resp = _execute_with_retries(req)
-
-                items = resp.get("items", []) or []
-                # Defensive: if include_cancelled=False, filter out status=cancelled that can sneak in
-                if not include_cancelled:
-                    items = [it for it in items if it.get("status") != "cancelled"]
-
-                for raw in items:
-                    try:
-                        summary = normalize_event_summary(raw, calendar_id=cal_id, calendar_tz=None)
-                        if summary:
-                            collected.append(summary)
-                            if len(collected) >= limit:
-                                break
-                    except Exception as ne:
-                        log.debug(
-                            "gcal.reader.normalize_event_summary_skip",
-                            extra={"error": str(ne), "event_id": raw.get("id"), "calendar_id": cal_id},
-                        )
-
-                page_token = cast(Optional[str], resp.get("nextPageToken"))
-                if len(collected) >= limit:
-                    # Build next_cursor at current calendar + remaining page token
-                    next_cursor = _Cursor(cal_index=cal_index, page_token=page_token).encode() if page_token else _Cursor(cal_index=cal_index + 1, page_token=None).encode() if (cal_index + 1) < len(calendars) else None
-                    break
-
-                if page_token:
-                    # More pages in the same calendar; continue loop
-                    continue
-
-                # Move to next calendar
-                cal_index += 1
-                page_token = None
-
-            # Post-filter on conference flag if requested
-            collected = _post_filter_has_conference(collected, filters.has_conference_link if filters else None)
-
-            # If we exhausted the current calendar and moved on, derive the final next_cursor
-            if next_cursor is None and cal_index < len(calendars):
-                next_cursor = _Cursor(cal_index=cal_index, page_token=page_token).encode()
-            elif next_cursor is None and cal_index >= len(calendars):
-                next_cursor = None
-
-            return Page(items=tuple(collected), next_cursor=next_cursor, total=None)
+            return self._list_events_windowed(
+                service=service,
+                calendars=calendars,
+                start=start,
+                end=end,
+                include_cancelled=include_cancelled,
+                expand=expand,
+                filters=filters,
+                limit=limit,
+                cursor=cursor,
+            )
 
         except Exception as e:
             log.warning(
                 "gcal.reader.list_events_failed",
                 extra={
                     "error": str(e),
-                    "expand": expand,
                     "include_cancelled": include_cancelled,
                     "limit": limit,
                 },
             )
             raise
+
+    # ---------- Private helpers ----------
+
+    def _list_events_incremental(
+        self,
+        *,
+        service: Any,
+        calendars: Sequence[str],
+        sync_token: str,
+        include_cancelled: bool,
+        filters: Optional[EventFilter],
+    ) -> Page[EventSummary]:
+        """Incremental sync using a syncToken (single calendar). Always exhausts pages."""
+        if len(calendars) != 1:
+            raise ValueError("Incremental sync only supported for a single calendar")
+
+        cal_id = calendars[0]
+        page_size = 100  # fixed page size; we always exhaust all pages
+        summaries: List[EventSummary] = []
+        next_sync_token: Optional[str] = None
+
+        page_token: Optional[str] = None
+        first_page = True
+        last_resp: Optional[Dict[str, Any]] = None
+
+        while True:
+            params: Dict[str, Any] = {
+                "calendarId": cal_id,
+                "showDeleted": True,  # required with syncToken
+                "maxResults": page_size,
+            }
+            if first_page:
+                params["syncToken"] = sync_token
+                first_page = False
+            else:
+                params["pageToken"] = page_token
+
+            req = service.events().list(**params)
+            resp = _execute_with_retries(req)
+            last_resp = resp
+
+            items = resp.get("items", []) or []
+
+            if not include_cancelled:
+                items = [it for it in items if it.get("status") != "cancelled"]
+
+            for raw in items:
+                try:
+                    summary = normalize_event_summary(
+                        raw, calendar_id=cal_id, calendar_tz=None
+                    )
+                    if summary:
+                        summaries.append(summary)
+                except Exception as ne:
+                    log.debug(
+                        "gcal.reader.normalize_event_summary_skip",
+                        extra={
+                            "error": str(ne),
+                            "event_id": raw.get("id"),
+                            "calendar_id": cal_id,
+                        },
+                    )
+
+            page_token = cast(Optional[str], resp.get("nextPageToken"))
+            if not page_token:
+                break
+
+        if last_resp is not None:
+            next_sync_token = cast(Optional[str], last_resp.get("nextSyncToken"))
+
+        summaries = _post_filter_has_conference(
+            summaries, filters.has_conference_link if filters else None
+        )
+
+        return Page(
+            items=tuple(summaries),
+            next_cursor=None,
+            total=None,
+            next_sync_token=next_sync_token,
+        )
+
+
+    def _list_events_full(
+        self,
+        *,
+        service: Any,
+        calendars: Sequence[str],
+        include_cancelled: bool,
+        expand: ExpandMode,
+        filters: Optional[EventFilter],
+    ) -> Page[EventSummary]:
+        """Initial full sync (no time bounds, no syncToken; single calendar). Always exhausts pages."""
+        if len(calendars) != 1:
+            raise ValueError("Full sync only supported for a single calendar")
+
+        cal_id = calendars[0]
+
+        single_events = expand == "instances"
+        order_by = "startTime" if single_events else None
+        q = _build_q(filters)
+
+        page_size = 100
+        summaries: List[EventSummary] = []
+        next_sync_token: Optional[str] = None
+
+        page_token: Optional[str] = None
+        last_resp: Optional[Dict[str, Any]] = None
+
+        while True:
+            params: Dict[str, Any] = {
+                "calendarId": cal_id,
+                "showDeleted": include_cancelled,
+                "maxResults": page_size,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            if q:
+                params["q"] = q
+            if order_by:
+                params["orderBy"] = order_by
+            if single_events is not None:
+                params["singleEvents"] = single_events
+
+            req = service.events().list(**params)
+            resp = _execute_with_retries(req)
+            last_resp = resp
+
+            items = resp.get("items", []) or []
+
+            if not include_cancelled:
+                items = [it for it in items if it.get("status") != "cancelled"]
+
+            for raw in items:
+                try:
+                    summary = normalize_event_summary(
+                        raw, calendar_id=cal_id, calendar_tz=None
+                    )
+                    if summary:
+                        summaries.append(summary)
+                except Exception as ne:
+                    log.debug(
+                        "gcal.reader.normalize_event_summary_skip",
+                        extra={
+                            "error": str(ne),
+                            "event_id": raw.get("id"),
+                            "calendar_id": cal_id,
+                        },
+                    )
+
+            page_token = cast(Optional[str], resp.get("nextPageToken"))
+            if not page_token:
+                break
+
+        if last_resp is not None:
+            next_sync_token = cast(Optional[str], last_resp.get("nextSyncToken"))
+
+        summaries = _post_filter_has_conference(
+            summaries, filters.has_conference_link if filters else None
+        )
+
+        return Page(
+            items=tuple(summaries),
+            next_cursor=None,
+            total=None,
+            next_sync_token=next_sync_token,
+        )
+    
+
+    def _list_events_windowed(
+        self,
+        *,
+        service: Any,
+        calendars: Sequence[str],
+        start: datetime,
+        end: datetime,
+        include_cancelled: bool,
+        expand: ExpandMode,
+        filters: Optional[EventFilter],
+        limit: int,
+        cursor: Optional[str],
+    ) -> Page[EventSummary]:
+        """Windowed listing across one or more calendars with composite cursor."""
+        # Decode composite cursor
+        c = _Cursor.decode(cursor)
+        cal_index = c.cal_index
+        page_token = c.page_token
+
+        single_events = expand == "instances"
+        order_by = "startTime" if single_events else None
+        q = _build_q(filters)
+
+        page_size = min(limit, 100)
+        summaries: List[EventSummary] = []
+        next_cursor: Optional[str] = None
+
+        while cal_index < len(calendars) and len(summaries) < limit:
+            cal_id = calendars[cal_index]
+
+            params: Dict[str, Any] = {
+                "calendarId": cal_id,
+                "singleEvents": single_events,
+                "timeMin": start.astimezone(timezone.utc).isoformat(),
+                "timeMax": end.astimezone(timezone.utc).isoformat(),
+                "showDeleted": include_cancelled,
+                "maxResults": page_size,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            if q:
+                params["q"] = q
+            if order_by:
+                params["orderBy"] = order_by
+
+            req = service.events().list(**params)
+            resp = _execute_with_retries(req)
+
+            items = resp.get("items", []) or []
+
+            if not include_cancelled:
+                items = [it for it in items if it.get("status") != "cancelled"]
+
+            for raw in items:
+                try:
+                    summary = normalize_event_summary(
+                        raw, calendar_id=cal_id, calendar_tz=None
+                    )
+                    if summary:
+                        summaries.append(summary)
+                        if len(summaries) >= limit:
+                            break
+                except Exception as ne:
+                    log.debug(
+                        "gcal.reader.normalize_event_summary_skip",
+                        extra={
+                            "error": str(ne),
+                            "event_id": raw.get("id"),
+                            "calendar_id": cal_id,
+                        },
+                    )
+
+            page_token = cast(Optional[str], resp.get("nextPageToken"))
+
+            if len(summaries) >= limit:
+                # Build next_cursor at current calendar + remaining page token
+                if page_token:
+                    next_cursor = _Cursor(
+                        cal_index=cal_index, page_token=page_token
+                    ).encode()
+                elif (cal_index + 1) < len(calendars):
+                    next_cursor = _Cursor(
+                        cal_index=cal_index + 1, page_token=None
+                    ).encode()
+                else:
+                    next_cursor = None
+                break
+
+            if page_token:
+                # More pages in the same calendar; continue loop
+                continue
+
+            # Move to next calendar
+            cal_index += 1
+            page_token = None
+
+        summaries = _post_filter_has_conference(
+            summaries, filters.has_conference_link if filters else None
+        )
+
+        # If we exhausted the current calendar and moved on, derive the final next_cursor
+        if next_cursor is None and cal_index < len(calendars):
+            next_cursor = _Cursor(
+                cal_index=cal_index, page_token=page_token
+            ).encode()
+        elif next_cursor is None and cal_index >= len(calendars):
+            next_cursor = None
+
+        return Page(
+            items=tuple(summaries),
+            next_cursor=next_cursor,
+            total=None,
+            next_sync_token=None,
+        )
 
     # ---------- Read (single) ----------
 
@@ -301,7 +569,8 @@ class GCalReader:
 
     def find_between(
         self,
-        window: TimeRange,
+        start: datetime,
+        end: datetime,
         *,
         calendar_ids: Optional[Sequence[str]] = None,
         include_cancelled: bool = False,
@@ -312,12 +581,12 @@ class GCalReader:
         fetches each item with get_event().
         """
         try:
-            # Collect all occurrences (no explicit limit here; the port does not define one)
             cursor: Optional[str] = None
             out: List[Event] = []
             while True:
                 page = self.list_events(
-                    window,
+                    start=start,
+                    end=end,
                     calendar_ids=calendar_ids,
                     include_cancelled=include_cancelled,
                     expand="instances",
@@ -331,12 +600,19 @@ class GCalReader:
                     except Exception as ge:
                         log.debug(
                             "gcal.reader.find_between_get_event_skip",
-                            extra={"error": str(ge), "event_id": s.id, "calendar_id": s.calendar_id},
+                            extra={
+                                "error": str(ge),
+                                "event_id": s.id,
+                                "calendar_id": s.calendar_id,
+                            },
                         )
                 if not page.next_cursor:
                     break
                 cursor = page.next_cursor
             return tuple(out)
         except Exception as e:
-            log.warning("gcal.reader.find_between_failed", extra={"error": str(e)})
+            log.warning(
+                "gcal.reader.find_between_failed",
+                extra={"error": str(e)},
+            )
             raise

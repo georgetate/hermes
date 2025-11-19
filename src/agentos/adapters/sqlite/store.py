@@ -7,10 +7,9 @@ import pickle
 from dataclasses import asdict  # not strictly needed, but handy if you extend
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
 from datetime import datetime, timezone
 
-from agentos.ports.storage import StoragePort
+from agentos.config import settings
 from agentos.ports.email import EmailThread
 from agentos.ports.calendar import Event
 
@@ -23,7 +22,9 @@ class SQLiteStore:
     - Adds simple scalar columns (timestamps) for efficient querying.
     """
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        if db_path is None:
+            db_path = settings.db_path
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path)
         self._conn.row_factory = sqlite3.Row

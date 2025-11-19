@@ -7,7 +7,7 @@ from typing import Optional, Protocol, Sequence, Generic, TypeVar, Literal
 
 T = TypeVar("T")
 
-# ---------- Paging + Window ----------
+# ---------- Paging ----------
 
 @dataclass(frozen=True)
 class Page(Generic[T]):
@@ -15,16 +15,7 @@ class Page(Generic[T]):
     items: Sequence[T]
     next_cursor: Optional[str] = None
     total: Optional[int] = None
-
-@dataclass(frozen=True)
-class TimeRange:
-    """
-    Inclusive start, exclusive end. All datetimes MUST be timezone-aware.
-    Adapters should preserve event-local timezones, but normalize comparisons.
-    """
-    start: datetime
-    end: datetime
-
+    next_sync_token: Optional[str] =  None # for incremental sync
 
 # ---------- Core DTOs ----------
 
@@ -176,7 +167,8 @@ class CalendarPort(Protocol):
 
     def list_events(
         self,
-        window: TimeRange,
+        start: datetime,
+        end: datetime,
         *,
         calendar_ids: Optional[Sequence[str]] = None,
         include_cancelled: bool = False,
@@ -204,7 +196,8 @@ class CalendarPort(Protocol):
 
     def find_between(
         self,
-        window: TimeRange,
+        start: datetime,
+        end: datetime,
         *,
         calendar_ids: Optional[Sequence[str]] = None,
         include_cancelled: bool = False,
@@ -220,7 +213,6 @@ class CalendarPort(Protocol):
         self,
         *,
         title: str,
-        time_range: Optional[TimeRange] = None,
         start: datetime,
         end: datetime,
         all_day: bool = False,

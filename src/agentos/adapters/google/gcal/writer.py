@@ -17,7 +17,6 @@ from agentos.ports.calendar import (
     Reminder,
     Recurrence,
     NewEvent,
-    TimeRange,
 )
 
 log = get_logger(__name__)
@@ -76,9 +75,8 @@ class GCalWriter:
         cls,
         *,
         title: str,
-        time_range: Optional[TimeRange] = None,
-        start: Optional[datetime],
-        end: Optional[datetime],
+        start: datetime,
+        end: datetime,
         all_day: bool = False,
         timezone: Optional[str] = None,
         location: Optional[str] = None,
@@ -93,11 +91,8 @@ class GCalWriter:
         Normalizes tz awareness and populates optional fields safely.
         """
         try:
-            if time_range:
-                start = start or time_range.start
-                end = end or time_range.end
             if not (start and end):
-                raise ValueError("Must provide either (start, end) or time_range with both defined.")
+                raise ValueError("Must provide either start and end datetimes.")
         
             if not start.tzinfo:
                 start = start.replace(tzinfo=ZoneInfo(timezone) if timezone else ZoneInfo("UTC"))
