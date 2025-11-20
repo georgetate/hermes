@@ -21,6 +21,7 @@ class Page(Generic[T]):
     items: Sequence[T]
     next_cursor: Optional[str] = None   # Opaque token for subsequent page
     total: Optional[int] = None         # Optional total count if provider can supply
+    next_sync_token: Optional[str] =  None # for sync
 
 
 # ---------- Core email DTOs (provider-agnostic) ----------
@@ -146,6 +147,35 @@ class EmailPort(Protocol):
     Adapters (e.g., GmailAdapter, OutlookAdapter) implement this interface and
     translate structured filters into provider-specific queries.
     """
+
+    # --- syncs ---
+
+    def sync_threads(
+        self,
+        *,
+        history_id: str,
+        include_snippets: bool = True,
+    ) -> Page[EmailThreadSummary]:
+        """
+        Return a page of thread summaries representing changes since the given
+        history_id. The next_cursor in the returned Page is the new history_id
+        to use for subsequent syncs.
+        """
+        raise NotImplementedError
+    
+    def full_sync_threads(
+        self,
+        *,
+        include_spam_trash: bool = False,
+        filters: Optional[EmailThreadFilter] = None,
+        include_snippets: bool = True,
+    ) -> Page[EmailThreadSummary]:
+        """
+        Perform a full sync of threads, optionally filtered by the given criteria.
+        The next_cursor in the returned Page is an opaque token to use for subsequent
+        incremental syncs.
+        """
+        raise NotImplementedError
 
     # --- Reads (threads-first) ---
 

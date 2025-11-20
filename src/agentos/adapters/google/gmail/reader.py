@@ -5,7 +5,7 @@ import random
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, TypeVar, cast
+from typing import Optional, TypeVar, cast, Any
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
@@ -136,7 +136,267 @@ class GmailReader:
     def __init__(self, client: Optional[GmailClient] = None) -> None:
         self.client = client or GmailClient.from_settings()
 
-    # --- Reads (threads-first) ---
+    # --- thread syncs ---
+
+    def sync_threads(
+        self,
+        *,
+        history_id: str,
+        include_snippets: bool = True,
+    ) -> Page[EmailThreadSummary]:
+        """
+        Incremental sync using Gmail History API.
+        - history_id: last stored historyId from previous full_sync/sync.
+        - Exhausts all history pages and returns updated thread summaries
+          plus the new historyId cursor.
+        """
+        svc = self.client.get_service()
+        users = svc.users()
+        history = users.history()
+        threads = users.threads()
+
+        page_size = 100
+        page_token: Optional[str] = None
+
+        changed_thread_ids: set[str] = set()
+        last_history_id: Optional[int] = None
+
+        # 1) Walk history to collect changed thread IDs and the newest historyId
+        while True:
+            params: dict[str, Any] = {
+                "userId": settings.gmail_user_id,
+                "startHistoryId": history_id,
+                "maxResults": page_size,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+
+            hist_req = history.list(**params)
+            resp = _execute_with_retries(hist_req)
+
+            # Track last historyId from response
+            h_resp = resp.get("historyId")
+            if h_resp is not None:
+                try:
+                    hi = int(h_resp)
+                    if last_history_id is None or hi > last_history_id:
+                        last_history_id = hi
+                except (TypeError, ValueError):
+                    pass
+
+            for h in resp.get("history", []) or []:
+                for entry_key in ("messagesAdded", "messagesDeleted", "labelsAdded", "labelsRemoved"):
+                    for m in h.get(entry_key, []) or []:
+                        msg = m.get("message") or {}
+                        tid = msg.get("threadId")
+                        if tid:
+                            changed_thread_ids.add(tid)
+
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+
+        # If nothing changed, just return an empty page with the same cursor
+        if not changed_thread_ids and last_history_id is None:
+            return Page[EmailThreadSummary](
+                items=tuple(),
+                next_cursor=None,
+                total=None,
+                next_sync_token=history_id,
+            )
+
+        new_history_id = str(last_history_id) if last_history_id is not None else history_id
+
+        # 2) Fetch current state for all changed threads and summarize
+        summaries: list[EmailThreadSummary] = []
+        total_skipped = 0
+
+        for tid in changed_thread_ids:
+            try:
+                time.sleep(random.uniform(0.02, 0.06))
+                get_req = threads.get(
+                    userId=settings.gmail_user_id,
+                    id=tid,
+                    format="metadata",
+                    metadataHeaders=[
+                        "From",
+                        "To",
+                        "Cc",
+                        "Bcc",
+                        "Subject",
+                        "Date",
+                        "Message-Id",
+                    ],
+                )
+                raw_thread = _execute_with_retries(get_req)
+
+                thread = normalize_thread(raw_thread)
+                summary = summarize_thread(thread)
+                if not include_snippets:
+                    summary = EmailThreadSummary(
+                        id=summary.id,
+                        subject=summary.subject,
+                        last_updated=summary.last_updated,
+                        message_ids=summary.message_ids,
+                        participants=summary.participants,
+                        snippet=None,
+                        labels=summary.labels,
+                        unread=summary.unread,
+                    )
+                summaries.append(summary)
+            except HttpError as e:
+                # 404 likely means the thread was deleted; caller/storage can interpret
+                total_skipped += 1
+                log.warning(
+                    "gmail.reader.sync_thread_get_failed",
+                    extra={"thread_id": tid, "status": getattr(e, "status_code", None)},
+                )
+            except Exception:
+                total_skipped += 1
+                log.exception(
+                    "gmail.reader.sync_thread_get_exception",
+                    extra={"thread_id": tid},
+                )
+
+        log.info(
+            "gmail.reader.sync_threads_done",
+            extra={
+                "changed_threads": len(changed_thread_ids),
+                "returned": len(summaries),
+                "skipped": total_skipped,
+                "new_history_id": new_history_id,
+            },
+        )
+
+        return Page[EmailThreadSummary](
+            items=tuple(summaries),
+            next_cursor=None,
+            total=None,
+            # Again, treat next_sync_token as the generic "sync cursor" slot
+            next_sync_token=new_history_id,
+        )
+    
+
+    def full_sync_threads(
+        self,
+        *,
+        include_spam_trash: bool = False,
+        filters: Optional[EmailThreadFilter] = None,
+        include_snippets: bool = True,
+    ) -> Page[EmailThreadSummary]:
+        """
+        Initial full sync of threads (no history cursor). Exhausts all pages of threads.list
+        and returns summaries + a historyId cursor for future incremental sync.
+        """
+        svc = self.client.get_service()
+        users = svc.users()
+        threads = users.threads()
+
+        q = _build_gmail_query(filters)
+        page_size = 100
+
+        collected: list[EmailThreadSummary] = []
+        total_skipped = 0
+        page_token: Optional[str] = None
+        max_history_id: Optional[int] = None
+
+        while True:
+            list_req = threads.list(
+                userId=settings.gmail_user_id,
+                q=q,
+                pageToken=page_token,
+                maxResults=page_size,
+                includeSpamTrash=include_spam_trash,
+            )
+            list_resp = _execute_with_retries(list_req)
+            ids = [t["id"] for t in (list_resp.get("threads") or [])]
+
+            if not ids:
+                page_token = None
+                break
+
+            for tid in ids:
+                try:
+                    time.sleep(random.uniform(0.02, 0.06))  # small jitter to avoid burstiness
+                    get_req = threads.get(
+                        userId=settings.gmail_user_id,
+                        id=tid,
+                        format="metadata",
+                        metadataHeaders=[
+                            "From",
+                            "To",
+                            "Cc",
+                            "Bcc",
+                            "Subject",
+                            "Date",
+                            "Message-Id",
+                        ],
+                    )
+                    raw_thread = _execute_with_retries(get_req)
+
+                    # Track max historyId seen (thread or message-level)
+                    h = raw_thread.get("historyId")
+                    if h is not None:
+                        try:
+                            hi = int(h)
+                            if max_history_id is None or hi > max_history_id:
+                                max_history_id = hi
+                        except (TypeError, ValueError):
+                            pass
+
+                    thread = normalize_thread(raw_thread)
+                    summary = summarize_thread(thread)
+                    if not include_snippets:
+                        summary = EmailThreadSummary(
+                            id=summary.id,
+                            subject=summary.subject,
+                            last_updated=summary.last_updated,
+                            message_ids=summary.message_ids,
+                            participants=summary.participants,
+                            snippet=None,
+                            labels=summary.labels,
+                            unread=summary.unread,
+                        )
+                    collected.append(summary)
+                except HttpError as e:
+                    total_skipped += 1
+                    log.warning(
+                        "gmail.reader.full_sync_thread_get_failed",
+                        extra={"thread_id": tid, "status": getattr(e, "status_code", None)},
+                    )
+                except Exception:
+                    total_skipped += 1
+                    log.exception(
+                        "gmail.reader.full_sync_thread_get_exception",
+                        extra={"thread_id": tid},
+                    )
+
+            page_token = list_resp.get("nextPageToken")
+            if not page_token:
+                break
+
+        next_history_id: Optional[str] = str(max_history_id) if max_history_id is not None else None
+
+        log.info(
+            "gmail.reader.full_sync_threads_done",
+            extra={
+                "returned": len(collected),
+                "skipped": total_skipped,
+                "query": q,
+                "include_spam_trash": include_spam_trash,
+                "next_history_id": next_history_id,
+            },
+        )
+
+        # Reuse next_sync_token as the generic "sync cursor" field (here: Gmail historyId)
+        return Page[EmailThreadSummary](
+            items=tuple(collected),
+            next_cursor=None,
+            total=None,
+            next_sync_token=next_history_id,
+        )
+    
+    # --- Reads ---
 
     def list_threads(
         self,
@@ -266,3 +526,4 @@ class GmailReader:
             last_updated=thread.last_updated,
             labels=thread.labels,
             messages=thread.messages)
+    

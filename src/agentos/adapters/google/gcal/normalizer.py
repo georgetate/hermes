@@ -12,7 +12,6 @@ from agentos.ports.calendar import (
     Attendee,
     Reminder,
     Recurrence,
-    TimeRange,
     NewEvent,
 )
 
@@ -42,7 +41,7 @@ def _parse_rfc3339(s: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _dt_all_day(date_str: str, tz_name: Optional[str]) -> TimeRange:
+def _dt_all_day(date_str: str, tz_name: Optional[str]) -> Tuple[datetime, datetime]:
     """
     Create [start=00:00, end=next-day 00:00) in the provided tz for an all-day event date string "YYYY-MM-DD".
     """
@@ -55,12 +54,12 @@ def _dt_all_day(date_str: str, tz_name: Optional[str]) -> TimeRange:
         y, m, d = map(int, date_str.split("-"))
         start = datetime(y, m, d, 0, 0, tzinfo=tz)
         end = start + timedelta(days=1)
-        return TimeRange(start=start, end=end)
+        return (start, end)
     except Exception:
         log.warning("gcal.normalizer.allday_parse_failed", extra={"date": date_str, "tz": tz_name})
         # Fallback to "today" in UTC if badly malformed (rare)
         today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        return TimeRange(start=today, end=today + timedelta(days=1))
+        return (today, today + timedelta(days=1))
 
 
 def _resolve_event_times(
@@ -116,11 +115,10 @@ def _resolve_event_times(
 
     # Case 2: date (all-day)
     if "date" in start_obj and "date" in end_obj:
-        all_day_range = _dt_all_day(start_obj["date"], start_tz)
-        s, e = all_day_range.start, all_day_range.end
+        start,end = _dt_all_day(start_obj["date"], start_tz)
         # Google end.date for all-day is usually the next calendar day; our spec
         # requires exclusive next-day end at 00:00 in event tz already, so we ignore raw end.date.
-        return (s, e, True, canonical_tz)
+        return (start, end, True, canonical_tz)
 
     # Fallback: unknown structure — try best effort
     log.warning("gcal.normalizer.unknown_time_format", extra={"event_id": raw.get("id")})

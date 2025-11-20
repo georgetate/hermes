@@ -163,6 +163,35 @@ class CalendarPort(Protocol):
         """Enumerate available calendars the user can read/write."""
         raise NotImplementedError
     
+    # --- Syncs ---
+
+    def sync_events(
+        self,
+        *,
+        calendar_id: str,
+        sync_token: str,
+        include_cancelled: bool,
+        filters: Optional[EventFilter],
+    ) -> Page[EventSummary]:
+        """
+        Incremental sync from a prior sync_token.
+        Returns a page of changed event summaries and a new sync_token.
+        """
+        raise NotImplementedError
+    
+    def full_sync_events(
+        self,
+        *,
+        calendar_id: str,
+        include_cancelled: bool,
+        expand: ExpandMode = 'none',
+        filters: Optional[EventFilter],
+    ) -> Page[EventSummary]:
+        """
+        Initial full sync (no time bounds, no syncToken; single calendar). Always exhausts pages.
+        """
+        raise NotImplementedError
+
     # --- Reads ---
 
     def list_events(
