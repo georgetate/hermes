@@ -190,8 +190,8 @@ class GCalReader:
         *,
         calendar_id: str,
         sync_token: str,
-        include_cancelled: bool,
-        filters: Optional[EventFilter],
+        include_cancelled: bool = True,
+        filters: Optional[EventFilter] = None,
     ) -> Page[EventSummary]:
         """Incremental sync using a syncToken (single calendar). Always exhausts pages."""
         try:
@@ -276,9 +276,9 @@ class GCalReader:
         self,
         *,
         calendar_id: str,
-        include_cancelled: bool,
+        include_cancelled: bool = True,
         expand: ExpandMode = 'none',
-        filters: Optional[EventFilter],
+        filters: Optional[EventFilter] = None,
     ) -> Page[EventSummary]:
         """Initial full sync (no time bounds, no syncToken; single calendar). Always exhausts pages."""
         try:
@@ -372,13 +372,13 @@ class GCalReader:
         start: datetime,
         end: datetime,
         calendar_ids: Optional[list[str]] = None,
-        include_cancelled: bool,
-        expand: ExpandMode,
-        filters: Optional[EventFilter],
-        limit: int,
-        cursor: Optional[str],
+        include_cancelled: bool = False,
+        expand: ExpandMode = 'none',
+        filters: Optional[EventFilter] = None,
+        limit: int = 100,
+        cursor: Optional[str] = None,
     ) -> Page[EventSummary]:
-        """Windowed listing across one or more calendars with composite cursor."""
+        """Windowed listing across one or more calendars with composite cursor support."""
         try:
             if not calendar_ids:
                 # Default to the configured user calendar (usually "primary")

@@ -280,7 +280,7 @@ class GmailReader:
     def full_sync_threads(
         self,
         *,
-        include_spam_trash: bool = False,
+        include_spam_trash: bool = True,
         filters: Optional[EmailThreadFilter] = None,
         include_snippets: bool = True,
     ) -> Page[EmailThreadSummary]:
@@ -402,7 +402,7 @@ class GmailReader:
         self,
         filters: Optional[EmailThreadFilter] = None,
         *,
-        limit: int = 50,
+        limit: int = 100,
         cursor: Optional[str] = None,
         include_snippets: bool = True,  # kept for signature parity; Gmail provides snippet in metadata
     ) -> Page[EmailThreadSummary]:
