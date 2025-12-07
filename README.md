@@ -1,4 +1,4 @@
-### hermes – Personal Workflow Assistant
+## hermes – Personal Workflow Assistant
 hermes helps you manage email and schedule more easily. It connects to your inbox and calendar and generates simple summaries and suggestions so you can clear your day faster.
 
 ### Features (early development)
