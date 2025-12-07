@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence, Tuple, List
 from zoneinfo import ZoneInfo
 
-from agentos.logging_utils import get_logger
-from agentos.ports.calendar import (
+from hermes.logging_utils import get_logger
+from hermes.ports.calendar import (
     CalendarRef,
     EventSummary,
     Event,
@@ -502,7 +502,7 @@ def build_event_insert_body(event: NewEvent) -> dict[str, Any]:
                 body["reminders"] = rem
         if event.has_conference_link:
             # Minimal signal; real conferenceData creation requires create/update with conferenceData + requestId
-            body["conferenceData"] = {"createRequest": {"requestId": "agentos-autogen"}}
+            body["conferenceData"] = {"createRequest": {"requestId": "hermes-autogen"}}
         if event.recurrence:
             body["recurrence"] = [build_rrule(event.recurrence)]
 

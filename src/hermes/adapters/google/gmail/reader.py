@@ -1,4 +1,4 @@
-# src/agentos/adapters/google/gmail/reader.py
+# src/hermes/adapters/google/gmail/reader.py
 from __future__ import annotations
 
 import random
@@ -10,14 +10,14 @@ from typing import Optional, TypeVar, cast, Any
 from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
 
-from agentos.logging_utils import get_logger
-from agentos.config import settings
-from agentos.adapters.google.gmail.client import GmailClient
-from agentos.adapters.google.gmail.normalizer import (
+from hermes.logging_utils import get_logger
+from hermes.config import settings
+from hermes.adapters.google.gmail.client import GmailClient
+from hermes.adapters.google.gmail.normalizer import (
     normalize_thread,
     summarize_thread,
 )
-from agentos.ports.email import (
+from hermes.ports.email import (
     EmailThread,
     EmailThreadFilter,
     EmailThreadSummary,

@@ -1,4 +1,4 @@
-# src/agentos/adapters/google/gmail/normalizer.py
+# src/hermes/adapters/google/gmail/normalizer.py
 from __future__ import annotations
 
 import email.utils
@@ -7,8 +7,8 @@ from base64 import urlsafe_b64decode
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
-from agentos.logging_utils import get_logger
-from agentos.ports.email import (
+from hermes.logging_utils import get_logger
+from hermes.ports.email import (
     AttachmentMeta,
     EmailAddress,
     EmailMessage,

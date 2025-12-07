@@ -9,9 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from datetime import datetime, timezone
 
-from agentos.config import settings
-from agentos.ports.email import EmailThread
-from agentos.ports.calendar import Event
+from hermes.config import settings
+from hermes.ports.email import EmailThread
+from hermes.ports.calendar import Event
 
 
 class SQLiteStore:

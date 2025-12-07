@@ -2,8 +2,8 @@ from __future__ import annotations
 from typing import Optional, Sequence
 from pathlib import Path
 
-from agentos.adapters.google.base_client import GoogleClient, GoogleClientConfig
-from agentos.config import settings
+from hermes.adapters.google.base_client import GoogleClient, GoogleClientConfig
+from hermes.config import settings
 
 
 class GCalClient(GoogleClient):

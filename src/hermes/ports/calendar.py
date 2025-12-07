@@ -1,4 +1,4 @@
-# src/agentos/ports/calendar.py
+# src/hermes/ports/calendar.py
 from __future__ import annotations
 
 from dataclasses import dataclass

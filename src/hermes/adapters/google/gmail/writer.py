@@ -1,4 +1,4 @@
-# src/agentos/adapters/google/gmail/writer.py
+# src/hermes/adapters/google/gmail/writer.py
 from __future__ import annotations
 
 import base64
@@ -17,10 +17,10 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
 
 
-from agentos.config import settings
-from agentos.logging_utils import get_logger
-from agentos.adapters.google.gmail.client import GmailClient
-from agentos.ports.email import (
+from hermes.config import settings
+from hermes.logging_utils import get_logger
+from hermes.adapters.google.gmail.client import GmailClient
+from hermes.ports.email import (
     EmailAddress,
     NewEmailDraft,
     ReplyDraft,

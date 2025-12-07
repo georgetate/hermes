@@ -12,8 +12,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from agentos.logging_utils import get_logger
-from agentos.config import settings
+from hermes.logging_utils import get_logger
+from hermes.config import settings
 
 log = get_logger(__name__)
 

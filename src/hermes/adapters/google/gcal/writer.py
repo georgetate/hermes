@@ -9,10 +9,10 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
 from zoneinfo import ZoneInfo
 
-from agentos.adapters.google.gcal.client import GCalClient
-from agentos.adapters.google.gcal.normalizer import build_event_insert_body
-from agentos.logging_utils import get_logger
-from agentos.ports.calendar import (
+from hermes.adapters.google.gcal.client import GCalClient
+from hermes.adapters.google.gcal.normalizer import build_event_insert_body
+from hermes.logging_utils import get_logger
+from hermes.ports.calendar import (
     Attendee,
     Reminder,
     Recurrence,

@@ -11,15 +11,15 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, TypeVar, cast
 from googleapiclient.errors import HttpError
 from googleapiclient.http import HttpRequest
 
-from agentos.adapters.google.gcal.client import GCalClient
-from agentos.adapters.google.gcal.normalizer import (
+from hermes.adapters.google.gcal.client import GCalClient
+from hermes.adapters.google.gcal.normalizer import (
     normalize_calendar_ref,
     normalize_event_full,
     normalize_event_summary,
 )
-from agentos.config import settings
-from agentos.logging_utils import get_logger
-from agentos.ports.calendar import (
+from hermes.config import settings
+from hermes.logging_utils import get_logger
+from hermes.ports.calendar import (
     CalendarRef,
     Event,
     EventFilter,

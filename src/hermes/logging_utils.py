@@ -1,4 +1,4 @@
-# src/agentos/logging.py
+# src/hermes/logging.py
 """
 Structured logging setup with optional JSON output and redaction.
 - Console handler + rotating file handler
@@ -6,7 +6,7 @@ Structured logging setup with optional JSON output and redaction.
 - Redacts emails and bearer-like tokens if enabled in settings
 
 Example:
-    from agentos.logging import configure_logging, get_logger
+    from hermes.logging import configure_logging, get_logger
     configure_logging()
     log = get_logger(__name__)
     log.info("service started", extra={"component": "triage"})
@@ -21,7 +21,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from agentos.config import settings
+from hermes.config import settings
 
 
 EMAIL_RE = re.compile(r"(?i)([a-z0-9._%+-]+)@([a-z0-9.-]+\.[a-z]{2,})")
@@ -147,6 +147,6 @@ def get_logger(name: str | None = None) -> logging.Logger:
 # --- tiny smoke test when run directly ---
 if __name__ == "__main__":
     configure_logging(force=True)
-    log = get_logger("agentos.smoke")
+    log = get_logger("hermes.smoke")
     log.info("hello from logging", extra={"component": "smoke", "user": "jane.doe@example.com"})
     log.error("token leak? sk-abcdef1234567890", extra={"note": "should be redacted"})

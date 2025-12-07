@@ -1,7 +1,7 @@
 from typing import Protocol
 from datetime import datetime
-from agentos.ports.calendar import Event
-from agentos.ports.email import EmailThread
+from hermes.ports.calendar import Event
+from hermes.ports.email import EmailThread
 
 
 class StoragePort(Protocol):

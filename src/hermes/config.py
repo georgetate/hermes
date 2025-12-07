@@ -1,13 +1,13 @@
-# src/agentos/config.py
+# src/hermes/config.py
 """
-Centralized configuration for AgentOS.
+Centralized configuration for Hermes.
 - Loads environment variables (via .env in dev) using Pydantic BaseSettings
 - Provides typed settings with sane defaults
 - Exposes a singleton `settings` for convenience, plus `get_settings()` for DI
 
 Add these deps in your pyproject:
 [project.optional-dependencies]
-agentos = [
+hermes = [
   "pydantic>=2.7",
   "python-dotenv>=1.0",  # Pydantic will auto-read .env if configured
 ]
@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
 
-ROOT = Path(__file__).resolve().parents[2]  # repo root (…/src/agentos/ → …/)
+ROOT = Path(__file__).resolve().parents[2]  # repo root (…/src/hermes/ → …/)
 DEFAULT_DATA_DIR = ROOT / "data"
 DEFAULT_CREDENTIALS_DIR = ROOT / ".credentials"
 
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     """Typed, validated app configuration.
 
     Usage:
-        from agentos.config import settings
+        from hermes.config import settings
         db_path = settings.db_path
     """
 
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # --- database ---
     data_dir: Path = Field(default=DEFAULT_DATA_DIR)
-    db_filename: str = Field(default="agentos.db")
+    db_filename: str = Field(default="hermes.db")
 
     # --- providers: Google ---
     google: GoogleOAuthPaths = Field(default_factory=GoogleOAuthPaths)
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     # --- shared OAuth + app defaults ---
     oauth_headless: bool = False
     oauth_port: int = 0           # 0 lets Google pick an open port
-    app_user_agent: str = "agentos/0.1"
+    app_user_agent: str = "hermes/0.1"
 
 
     # --- providers: OpenAI / LLM ---
@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
     log_json: bool = Field(default=True, description="Emit logs as JSON if True, pretty if False")
     log_dir: Path = Field(default=DEFAULT_DATA_DIR / "logs")
-    log_file: str = Field(default="agentos.log")
+    log_file: str = Field(default="hermes.log")
     log_max_bytes: int = Field(default=2 * 1024 * 1024)  # 2MB
     log_backup_count: int = Field(default=3)
     redact_emails_in_logs: bool = Field(default=True)

@@ -1,4 +1,4 @@
-# src/agentos/ports/email.py
+# src/hermes/ports/email.py
 from __future__ import annotations
 
 from dataclasses import dataclass
