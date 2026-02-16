@@ -30,3 +30,19 @@ The project uses a ports-and-adapters (hexagonal) design so provider integration
 ## Local setup notes
 - Runtime configuration lives in `.env` and `src/hermes/config.py`.
 - Place OAuth credentials under `.credentials/` (see `GoogleOAuthPaths` in `src/hermes/config.py`).
+
+### Google OAuth quick setup
+1. In Google Cloud Console, enable:
+   - Gmail API
+   - Google Calendar API
+2. Configure OAuth consent screen (External or Internal) and add your test user.
+3. Create OAuth client credentials:
+   - Application type: Desktop app
+   - Download the JSON
+4. Save the downloaded file as `.credentials/credentials.json`.
+   - A safe template is provided at `.credentials/credentials.example.json`.
+5. Confirm `.env` has:
+   - `GOOGLE_CLIENT_SECRETS_PATH=.credentials/credentials.json`
+   - `GOOGLE_TOKEN_PATH=.credentials/token.json`
+6. Run any command/path that initializes a Google client.
+   - On first run, browser OAuth opens and writes `.credentials/token.json`.

@@ -29,6 +29,7 @@ MANIFEST
 # --- Credentials (never commit secrets) ---
 .credentials/*
 !.credentials/.gitkeep
+!.credentials/credentials.example.json
 
 # --- Data files (DBs, logs, cache) ---
 data/*
