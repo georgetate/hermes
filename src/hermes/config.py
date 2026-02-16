@@ -1,6 +1,5 @@
-# src/hermes/config.py
 """
-Centralized configuration for Hermes.
+Centralized configuration for hermes.
 - Loads environment variables (via .env in dev) using Pydantic BaseSettings
 - Provides typed settings with sane defaults
 - Exposes a singleton `settings` for convenience, plus `get_settings()` for DI
@@ -21,10 +20,13 @@ DEFAULT_CREDENTIALS_DIR = ROOT / ".credentials"
 
 
 class GoogleOAuthPaths(BaseModel):
+    """Filesystem locations for Google OAuth client secrets and tokens."""
+
     client_secrets_path: Path = Field(default=DEFAULT_CREDENTIALS_DIR / "credentials.json")
     token_path: Path = Field(default=DEFAULT_CREDENTIALS_DIR / "token.json")
 
     def ensure_dirs(self) -> None:
+        """Ensure parent directories exist for OAuth credential files."""
         self.client_secrets_path.parent.mkdir(parents=True, exist_ok=True)
         self.token_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -95,10 +97,12 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> Path:
+        """Return absolute SQLite database path."""
         return self.data_dir / self.db_filename
 
     @property
     def log_path(self) -> Path:
+        """Return absolute application log path."""
         return self.log_dir / self.log_file
 
     @field_validator("data_dir", "log_dir")
@@ -107,6 +111,7 @@ class Settings(BaseSettings):
         return Path(os.path.expanduser(str(v)))
 
     def ensure_dirs(self) -> None:
+        """Create configured data, log, and credential directories."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.google.ensure_dirs()

@@ -1,28 +1,27 @@
-# src/hermes/adapters/sqlite/store.py
+"""SQLite-backed storage adapter for hermes domain objects.
+
+This adapter persists email threads, calendar events, and provider sync cursors.
+Objects are stored as pickled payloads with indexed scalar timestamp fields for
+efficient lookups by recency and time window.
+"""
 
 from __future__ import annotations
 
-import sqlite3
 import pickle
-from dataclasses import asdict  # not strictly needed, but handy if extending
-from datetime import datetime
-from pathlib import Path
+import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 from hermes.config import settings
-from hermes.ports.email import EmailThread
 from hermes.ports.calendar import Event
+from hermes.ports.email import EmailThread
 
 
 class SQLiteStore:
-    """
-    SQLite-backed implementation of StoragePort.
-
-    - Stores EmailThread and Event objects pickled in BLOB columns.
-    - Adds simple scalar columns (timestamps) for efficient querying.
-    """
+    """SQLite implementation of the `StoragePort` contract."""
 
     def __init__(self, db_path: str | Path | None = None) -> None:
+        """Create a store connected to `db_path`, then ensure schema exists."""
         if db_path is None:
             db_path = settings.db_path
         self._db_path = str(db_path)
@@ -36,21 +35,16 @@ class SQLiteStore:
     # -------------------------------------------------------------------------
 
     def _enable_pragmas(self) -> None:
-        """Enables write ahead logging (WAL) and foreign key support. WAL allows for better durability and concurrency in a local single-user app. Foreign keys prevents data integrity issues that could arise later
-        """
+        """Enable SQLite settings for local durability and integrity."""
         cur = self._conn.cursor()
-        # Better durability & concurrency for a local single-user app
         cur.execute("PRAGMA journal_mode=WAL;")
         cur.execute("PRAGMA foreign_keys=ON;")
         self._conn.commit()
 
     def _init_schema(self) -> None:
-        """
-        Initializes the SQLite database schema.
-        """
+        """Create required tables and indexes when they do not yet exist."""
         cur = self._conn.cursor()
 
-        # Emails (threads)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS gmail_threads (
@@ -67,7 +61,6 @@ class SQLiteStore:
             """
         )
 
-        # Events
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS gcal_events (
@@ -85,7 +78,6 @@ class SQLiteStore:
             """
         )
 
-        # Sync cursors (gmail historyId, gcal syncToken, etc.)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS sync_state (
@@ -100,37 +92,25 @@ class SQLiteStore:
 
     @staticmethod
     def _dt_to_iso(dt: datetime) -> str:
-        """Converts a datetime to an ISO 8601 string. Assumes the datetime is timezone-aware. If it's naive, it will be treated as UTC.
-        """
+        """Serialize a datetime to ISO 8601 text for SQLite storage."""
         return dt.isoformat()
 
     # -------------------------------------------------------------------------
-    # EMAIL STORAGE
+    # Email storage
     # -------------------------------------------------------------------------
 
     def save_threads(self, threads: list[EmailThread]) -> None:
-        """
-        Saves a list of EmailThread objects to the database. 
-        
-        If a thread with the same ID already exists, it will be updated/replaced. Uses pickle to preserve custom python objects. Also stores a separate last_updated timestamp for efficient sorting and retrieval of recent threads.
-
-        Returns:
-            None: Updates the database in-place.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the data being pickled.
-        """
+        """Upsert thread payloads by `thread.id`."""
         if not threads:
             return
 
         rows = []
-        for t in threads:
-            # We store the full object pickled, plus a scalar for querying
-            payload = pickle.dumps(t, protocol=pickle.HIGHEST_PROTOCOL)
-            last_updated = self._dt_to_iso(t.last_updated)
-            rows.append((t.id, payload, last_updated))
+        for thread in threads:
+            payload = pickle.dumps(thread, protocol=pickle.HIGHEST_PROTOCOL)
+            last_updated = self._dt_to_iso(thread.last_updated)
+            rows.append((thread.id, payload, last_updated))
 
-        with self._conn:  # atomic transaction
+        with self._conn:
             self._conn.executemany(
                 """
                 INSERT INTO gmail_threads (thread_id, payload, last_updated)
@@ -143,15 +123,7 @@ class SQLiteStore:
             )
 
     def get_recent_threads(self, limit: int) -> list[EmailThread]:
-        """
-        Retrieves a list of EmailThread objects from the database, sorted by last_updated timestamp in newest-first order.
-
-        Returns:
-            list[EmailThread]: The list of EmailThread objects retrieved from the database.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the data being unpickled.
-        """
+        """Return up to `limit` threads ordered by newest `last_updated` first."""
         cur = self._conn.execute(
             """
             SELECT payload
@@ -165,15 +137,7 @@ class SQLiteStore:
         return [pickle.loads(row["payload"]) for row in rows]
 
     def get_thread(self, thread_id: str) -> EmailThread | None:
-        """
-        Retrieves a single EmailThread object from the database by thread_id.
-
-        Returns:
-            list[EmailThread]: The list of EmailThread objects retrieved from the database.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the data being unpickled.
-        """
+        """Return one thread by id, or `None` when no row exists."""
         cur = self._conn.execute(
             """
             SELECT payload
@@ -188,15 +152,7 @@ class SQLiteStore:
         return pickle.loads(row["payload"])
 
     def delete_thread(self, thread_id: str) -> None:
-        """
-        Removes a single EmailThread object from the database by thread_id.
-
-        Returns:
-            None: Updates the database in-place.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the data being deleted.
-        """
+        """Delete one thread by id."""
         with self._conn:
             self._conn.execute(
                 "DELETE FROM gmail_threads WHERE thread_id = ?",
@@ -204,33 +160,20 @@ class SQLiteStore:
             )
 
     # -------------------------------------------------------------------------
-    # EVENT STORAGE
+    # Event storage
     # -------------------------------------------------------------------------
 
     def save_events(self, events: list[Event]) -> None:
-        """
-        Saves a list of Event objects to the database. 
-        
-        If an event with the same ID already exists, it will be updated/replaced. Uses pickle to preserve custom python objects. Also stores a separate start_time and end_time timestamp for efficient sorting and retrieval of recent events.
-
-        Returns:
-            None: Updates the database in-place.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the data being pickled.
-        """
+        """Upsert event payloads by `event.id`."""
         if not events:
             return
 
         rows = []
-        for ev in events:
-            payload = pickle.dumps(ev, protocol=pickle.HIGHEST_PROTOCOL)
-
-            # Assumes your Event dataclass has .start and .end as datetime
-            start_time = self._dt_to_iso(ev.start)
-            end_time = self._dt_to_iso(ev.end)
-
-            rows.append((ev.id, payload, start_time, end_time))
+        for event in events:
+            payload = pickle.dumps(event, protocol=pickle.HIGHEST_PROTOCOL)
+            start_time = self._dt_to_iso(event.start)
+            end_time = self._dt_to_iso(event.end)
+            rows.append((event.id, payload, start_time, end_time))
 
         with self._conn:
             self._conn.executemany(
@@ -245,18 +188,8 @@ class SQLiteStore:
                 rows,
             )
 
-    def get_events_between(
-        self, start: datetime, end: datetime
-    ) -> list[Event]:
-        """
-        Retrieves a list of Event objects from the database, sorted by start_time timestamp in oldest-first order.
-
-        Returns:
-            list[Event]: The list of Event objects retrieved from the database.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the data being unpickled.
-        """
+    def get_events_between(self, start: datetime, end: datetime) -> list[Event]:
+        """Return events with `start_time` in the `[start, end)` window."""
         start_iso = self._dt_to_iso(start)
         end_iso = self._dt_to_iso(end)
 
@@ -274,15 +207,7 @@ class SQLiteStore:
         return [pickle.loads(row["payload"]) for row in rows]
 
     def get_event(self, event_id: str) -> Event | None:
-        """
-        Retrieves a single Event object from the database by event_id.
-
-        Returns:
-            Event: The Event object retrieved from the database, or None if not found.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the data being unpickled.
-        """
+        """Return one event by id, or `None` when no row exists."""
         cur = self._conn.execute(
             """
             SELECT payload
@@ -297,6 +222,7 @@ class SQLiteStore:
         return pickle.loads(row["payload"])
 
     def delete_event(self, event_id: str) -> None:
+        """Delete one event by id."""
         with self._conn:
             self._conn.execute(
                 "DELETE FROM gcal_events WHERE event_id = ?",
@@ -304,22 +230,11 @@ class SQLiteStore:
             )
 
     # -------------------------------------------------------------------------
-    # SYNC CURSORS
+    # Sync cursors
     # -------------------------------------------------------------------------
 
     def get_cursor(self, provider: str) -> str | None:
-        """
-        Retrieves the sync cursor for a given provider from the database.
-
-        Args:
-            provider (str): The provider name for which to retrieve the sync cursor. Eg: "gmail" or "gcal".
-
-        Returns:
-            str: The sync cursor string for the given provider, or None if not found.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the cursor being retrieved.
-        """ 
+        """Return the stored sync cursor for `provider`, if present."""
         cur = self._conn.execute(
             """
             SELECT cursor
@@ -334,19 +249,7 @@ class SQLiteStore:
         return row["cursor"]
 
     def save_cursor(self, provider: str, cursor: str) -> None:
-        """
-        Saves a sync cursor for a given provider to the database.
-
-        Args:
-            provider (str): The provider name.
-            cursor (str): The sync cursor string to save.
-
-        Returns:
-            None: Updates the database in-place.
-
-        Raises:
-            Exception: Doesn't raise errors directly, but underlying sqlite3 exceptions may occur if the database file is inaccessible or if there are issues with the cursor string being saved.
-        """ 
+        """Upsert the sync cursor for `provider`."""
         now_iso = datetime.now(timezone.utc).isoformat()
         with self._conn:
             self._conn.execute(
@@ -360,9 +263,6 @@ class SQLiteStore:
                 (provider, cursor, now_iso),
             )
 
-    # -------------------------------------------------------------------------
-    # Optional: cleanup
-    # -------------------------------------------------------------------------
-
     def close(self) -> None:
+        """Close the underlying SQLite connection."""
         self._conn.close()

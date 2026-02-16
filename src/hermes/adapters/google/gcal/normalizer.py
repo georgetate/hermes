@@ -1,3 +1,9 @@
+"""Normalization helpers for Google Calendar payloads.
+
+Contains bidirectional mapping between Google Calendar response/request shapes
+and provider-agnostic calendar DTOs from `hermes.ports.calendar`.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

@@ -1,3 +1,9 @@
+"""Shared Google API client foundation.
+
+Provides OAuth credential lifecycle handling and lazy discovery-service
+construction used by Gmail and Calendar adapters.
+"""
+
 from __future__ import annotations
 
 import json

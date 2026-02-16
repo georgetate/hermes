@@ -1,3 +1,9 @@
+"""Google Calendar read adapter implementation.
+
+This module provides calendar discovery, windowed listing, full sync, and
+incremental sync operations backed by the Google Calendar API.
+"""
+
 from __future__ import annotations
 
 import random
@@ -62,7 +68,7 @@ def _execute_with_retries(
                 delay = min(cap_s, base_delay * (2 ** (attempt - 1)))
                 delay = delay * (0.5 + random.random())  # jitter in [0.5x, 1.5x]
                 log.warning(
-                    "gcal.writer.retrying_http_error",
+                    "gcal.reader.retrying_http_error",
                     extra={
                         "attempt": attempt,
                         "max_attempts": max_attempts,
@@ -71,7 +77,7 @@ def _execute_with_retries(
                 )
                 time.sleep(delay)
                 continue
-            log.exception("gcal.writer.request_failed")
+            log.exception("gcal.reader.request_failed")
             raise
 
 
@@ -156,17 +162,10 @@ class GCalReader:
     # ---------- Discovery ----------
 
     def list_calendars(self) -> Sequence[CalendarRef]:
-        """
-        Return all calendars the authenticated user can read.
+        """Return readable calendars available to the authenticated user.
 
-        Paginates through `calendarList.list`, normalizes each provider item into
-        `CalendarRef`, and preserves provider order in the returned sequence.
-
-        Returns:
-            Sequence[CalendarRef]: Readable calendars available to the user.
-
-        Raises:
-            Exception: Propagates API/auth/normalization failures after logging.
+        The method paginates through `calendarList.list`, normalizes each item
+        into `CalendarRef`, and preserves provider order in the returned tuple.
         """
         try:
             service = self.client.get_service()
@@ -198,7 +197,6 @@ class GCalReader:
     # ---------- events syncing ----------
 
     def sync_events(
-            
         self,
         *,
         calendar_id: str,
@@ -206,7 +204,11 @@ class GCalReader:
         include_cancelled: bool = True,
         filters: Optional[EventFilter] = None,
     ) -> Page[EventSummary]:
-        """Incremental sync using a syncToken (single calendar). Always exhausts pages."""
+        """Run incremental sync for one calendar using a prior `sync_token`.
+
+        This operation exhausts provider pagination and returns all changed
+        summaries plus the next sync token in `Page.next_sync_token`.
+        """
         try:
             service = self.client.get_service()
 
@@ -286,7 +288,6 @@ class GCalReader:
 
 
     def full_sync_events(
-
         self,
         *,
         calendar_id: str,
@@ -294,7 +295,7 @@ class GCalReader:
         expand: ExpandMode = 'none',
         filters: Optional[EventFilter] = None,
     ) -> Page[EventSummary]:
-        """Initial full sync (no time bounds, no syncToken; single calendar). Always exhausts pages."""
+        """Run initial full sync for one calendar without a prior sync token."""
         try:
             service = self.client.get_service()
 
@@ -392,7 +393,10 @@ class GCalReader:
         limit: int = 100,
         cursor: Optional[str] = None,
     ) -> Page[EventSummary]:
-        """Windowed listing across one or more calendars with composite cursor support."""
+        """List event summaries for a window across one or more calendars.
+
+        Uses a composite cursor to continue pagination across calendar boundaries.
+        """
         try:
             if not calendar_ids:
                 # Default to the configured user calendar (usually "primary")
@@ -515,17 +519,7 @@ class GCalReader:
     # ---------- Read (single) ----------
 
     def get_event(self, event_id: str, calendar_id: str) -> Event:
-        """
-        Return the requested event to authorized user
-
-        Retrieves the event from Google by ID, then normalizes it returning a full Event object.
-
-        Returns:
-            Event: The requested event.
-
-        Raises:
-            Exception: Propagates normalization failures after logging.
-        """
+        """Fetch one event by id and return a normalized full `Event` object."""
         try:
             service = self.client.get_service()
             req = service.events().get(calendarId=calendar_id, eventId=event_id)

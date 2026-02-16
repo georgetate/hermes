@@ -1,4 +1,9 @@
-# src/hermes/adapters/google/gmail/normalizer.py
+"""Normalization helpers for Gmail payloads.
+
+Maps Gmail thread/message payloads into provider-agnostic email DTOs used by
+the hermes email port.
+"""
+
 from __future__ import annotations
 
 import email.utils

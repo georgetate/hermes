@@ -1,4 +1,5 @@
-# src/hermes/ports/email.py
+"""Provider-agnostic email domain types and port contract."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ class Page(Generic[T]):
     items: Sequence[T]
     next_cursor: Optional[str] = None   # Opaque token for subsequent page
     total: Optional[int] = None         # Optional total count if provider can supply
-    next_sync_token: Optional[str] =  None # for sync
+    next_sync_token: Optional[str] = None  # for sync
 
 
 # ---------- Core email DTOs (provider-agnostic) ----------

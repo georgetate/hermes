@@ -1,3 +1,9 @@
+"""Google Calendar write adapter implementation.
+
+This module builds provider request payloads and performs write operations
+against the Google Calendar API (create and delete flows).
+"""
+
 from __future__ import annotations
 
 import time
@@ -59,9 +65,9 @@ def _execute_with_retries(request: HttpRequest, *, max_attempts: int = 3, base_d
 class GCalWriter:
     """
     Google Calendar write adapter.
-    Mirrors the GmailWriter pattern:
+    Mirrors the Gmail writer flow:
       - _build_new_event() → constructs data transfer object (DTO)
-      - create_new_event() → inserts into Google Calendar includes retries and returns event id
+      - create_new_event() → inserts into Google Calendar and returns event id
       - delete_event() → deletes an event by its id
       - delete_all_after() → removes a recurring event and its future instances
     """

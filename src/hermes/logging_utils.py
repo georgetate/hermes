@@ -1,4 +1,3 @@
-# src/hermes/logging_utils.py
 """
 Structured logging setup with optional JSON output and redaction.
 - Console handler + rotating file handler
@@ -32,6 +31,7 @@ class RedactingFilter(logging.Filter):
     """Redact emails and token-like strings in log messages and extras."""
 
     def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        """Mutate the record in-place, replacing sensitive string patterns."""
         if not settings.redact_emails_in_logs:
             return True
         # Message
@@ -57,6 +57,7 @@ class JsonFormatter(logging.Formatter):
     """Minimal JSON formatter for logs."""
 
     def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
+        """Render a log record as a JSON object string."""
         base: dict[str, Any] = {
             "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
@@ -77,9 +78,12 @@ class JsonFormatter(logging.Formatter):
 
 
 class TextFormatter(logging.Formatter):
+    """Human-readable single-line formatter for console output."""
+
     default_msec_format = "%s.%03d"
 
     def format(self, record: logging.LogRecord) -> str:  # type: ignore[override]
+        """Render timestamp, level, logger name, and message as plain text."""
         ts = datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat()
         msg = record.getMessage()
         return f"{ts} | {record.levelname:<7} | {record.name} | {msg}"
@@ -139,6 +143,7 @@ def configure_logging(force: bool = False) -> None:
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
+    """Return a logger, configuring the global logging system on first use."""
     if not _configured:
         configure_logging()
     return logging.getLogger(name if name else __name__)

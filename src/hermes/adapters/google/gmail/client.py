@@ -1,3 +1,5 @@
+"""Google Gmail API client wrapper built on `GoogleClient`."""
+
 from __future__ import annotations
 from typing import Optional
 
@@ -10,6 +12,7 @@ class GmailClient(GoogleClient):
 
     @classmethod
     def from_settings(cls) -> GmailClient:
+        """Build a `GmailClient` using configured Gmail API settings."""
         config = GoogleClientConfig.from_settings(
             scopes=tuple(settings.gmail_scopes),
             api_name="gmail",

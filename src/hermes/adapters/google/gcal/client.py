@@ -1,6 +1,7 @@
+"""Google Calendar API client wrapper built on `GoogleClient`."""
+
 from __future__ import annotations
-from typing import Optional, Sequence
-from pathlib import Path
+from typing import Optional
 
 from hermes.adapters.google.base_client import GoogleClient, GoogleClientConfig
 from hermes.config import settings
@@ -11,6 +12,7 @@ class GCalClient(GoogleClient):
 
     @classmethod
     def from_settings(cls) -> GCalClient:
+        """Build a `GCalClient` using configured Calendar API settings."""
         config = GoogleClientConfig.from_settings(
             scopes=tuple(settings.gcal_scopes),
             api_name="calendar",

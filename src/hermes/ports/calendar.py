@@ -1,4 +1,5 @@
-# src/hermes/ports/calendar.py
+"""Provider-agnostic calendar domain types and port contract."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ class Page(Generic[T]):
     items: Sequence[T]
     next_cursor: Optional[str] = None
     total: Optional[int] = None
-    next_sync_token: Optional[str] =  None # for incremental sync
+    next_sync_token: Optional[str] = None  # for incremental sync
 
 # ---------- Core DTOs ----------
 
@@ -29,6 +30,7 @@ class CalendarRef:
 
 @dataclass(frozen=True)
 class Attendee:
+    """Event participant details."""
     name: Optional[str]
     email: str
     optional: bool = False
@@ -282,7 +284,7 @@ class CalendarPort(Protocol):
         send_updates: bool = True,
     ) -> None:
         """
-        Deletes a specified occurrence of a repeating event and all future occurrences in the series.
+        Delete a selected recurring instance and all following instances.
         """
         raise NotImplementedError
     
