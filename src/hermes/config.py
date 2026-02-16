@@ -4,13 +4,6 @@ Centralized configuration for Hermes.
 - Loads environment variables (via .env in dev) using Pydantic BaseSettings
 - Provides typed settings with sane defaults
 - Exposes a singleton `settings` for convenience, plus `get_settings()` for DI
-
-Add these deps in your pyproject:
-[project.optional-dependencies]
-hermes = [
-  "pydantic>=2.7",
-  "python-dotenv>=1.0",  # Pydantic will auto-read .env if configured
-]
 """
 from __future__ import annotations
 
