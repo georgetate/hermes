@@ -60,9 +60,10 @@ class GCalWriter:
     """
     Google Calendar write adapter.
     Mirrors the GmailWriter pattern:
-      - _build_new_event() → constructs DTO
-      - create_new_event() → inserts into Google Calendar
-      - send_event() → retries + returns event id
+      - _build_new_event() → constructs data transfer object (DTO)
+      - create_new_event() → inserts into Google Calendar includes retries and returns event id
+      - delete_event() → deletes an event by it's id
+      - delete_all_after() → removes an recurring event and it's future instances
     """
 
     def __init__(self, client: Optional[GCalClient] = None) -> None:
@@ -154,6 +155,8 @@ class GCalWriter:
         """
         Delete an event from Google Calendar.
         If the event is part of a recurring series, deleting the master removes all instances.
+        
+        For recurring events, it's equivalent to Google Calendar's 'All events' option (for the master) and 'This event' (for any other).
         """
         try:
             service = self.client.get_service()
@@ -183,9 +186,8 @@ class GCalWriter:
         send_updates: bool = True,
     ) -> None:
         """
-        Truncates a recurring event so that no occurrences exist after `cutoff_start`.
-        Equivalent to Google Calendar's 'Delete all following events' option.
-        Keeps the occurrence at `cutoff_start` intact.
+        Truncates a recurring event so that no occurrences exist after and inlcuding `cutoff_start`.
+        Equivalent to Google Calendar's 'Delete this and following events' option.
         """
         try:
             service = self.client.get_service()
