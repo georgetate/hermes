@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import pickle
-from dataclasses import asdict  # not strictly needed, but handy if you extend
+from dataclasses import asdict  # not strictly needed, but handy if extending
 from datetime import datetime
 from pathlib import Path
 from datetime import datetime, timezone
@@ -248,9 +248,6 @@ class SQLiteStore:
         return row["cursor"]
 
     def save_cursor(self, provider: str, cursor: str) -> None:
-        # change import
-
-        # replace selection
         now_iso = datetime.now(timezone.utc).isoformat()
         with self._conn:
             self._conn.execute(
