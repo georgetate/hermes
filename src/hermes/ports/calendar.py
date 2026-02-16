@@ -106,7 +106,7 @@ class Event:
     has_conference_link: Optional[bool] = None
     recurrence: Optional[Recurrence] = None
     series_id: Optional[str] = None     # present if this is an instance of a series
-    status: Optional[str] = None  # ← new field
+    status: Optional[str] = None
 
 
 @dataclass(frozen=True)
