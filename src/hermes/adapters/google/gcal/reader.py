@@ -156,6 +156,18 @@ class GCalReader:
     # ---------- Discovery ----------
 
     def list_calendars(self) -> Sequence[CalendarRef]:
+        """
+        Return all calendars the authenticated user can read.
+
+        Paginates through `calendarList.list`, normalizes each provider item into
+        `CalendarRef`, and preserves provider order in the returned sequence.
+
+        Returns:
+            Sequence[CalendarRef]: Readable calendars available to the user.
+
+        Raises:
+            Exception: Propagates API/auth/normalization failures after logging.
+        """
         try:
             service = self.client.get_service()
             # calendarList.list is paginated; most users have few calendars, but paginate defensively
@@ -186,6 +198,7 @@ class GCalReader:
     # ---------- events syncing ----------
 
     def sync_events(
+            
         self,
         *,
         calendar_id: str,
@@ -273,6 +286,7 @@ class GCalReader:
 
 
     def full_sync_events(
+
         self,
         *,
         calendar_id: str,
@@ -501,6 +515,17 @@ class GCalReader:
     # ---------- Read (single) ----------
 
     def get_event(self, event_id: str, calendar_id: str) -> Event:
+        """
+        Return the requested event to authorized user
+
+        Retrieves the event from Google by ID, then normalizes it returning a full Event object.
+
+        Returns:
+            Event: The requested event.
+
+        Raises:
+            Exception: Propagates normalization failures after logging.
+        """
         try:
             service = self.client.get_service()
             req = service.events().get(calendarId=calendar_id, eventId=event_id)

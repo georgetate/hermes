@@ -316,6 +316,17 @@ class GmailWriter:
 
 
     def create_new_draft(self, draft: NewEmailDraft) -> str:
+        """
+        Return an email draft ID.
+
+        Creates a draft email that can later be sent. The draft is created in the user's Gmail account and can be accessed and edited through the Gmail web interface or other email clients that sync with Gmail.
+
+        Returns:
+            str: The email draft ID.
+
+        Raises:
+            Exception: Doesn't raise execptions directly, but may propagate exceptions from the Gmail API client if something goes wrong during draft creation.
+        """
         service = self.client.get_service()
 
         msg = PyEmailMessage()
@@ -358,6 +369,17 @@ class GmailWriter:
         return draft_id
 
     def create_reply_draft(self, draft: ReplyDraft, allow_reply_self: bool = False) -> str:
+        """
+        Return a email draft ID, specifically for a reply.
+
+        Creates a draft email reply that can later be sent. The draft is created in the user's Gmail account and can be accessed and edited through the Gmail web interface or other email clients that sync with Gmail.
+
+        Returns:
+            str: The email reply draft ID.
+
+        Raises:
+            Exception: Doesn't raise execptions directly, but may propagate exceptions from the Gmail API client if something goes wrong during draft creation.
+        """
         service = self.client.get_service()
         if not allow_reply_self:
             my_email = _get_profile_email(service)
@@ -412,6 +434,17 @@ class GmailWriter:
         return draft_id
 
     def send_draft(self, draft_id: str) -> str:
+        """
+        Send a drafted email by its draft ID.
+
+        Sends a drafted email that was previously created using create_new_draft or create_reply_draft. The draft is identified by its unique draft ID. After sending, the email will be moved from the Drafts folder to the Sent folder in the user's Gmail account.
+
+        Returns:
+            str: The email message ID of the sent email.
+
+        Raises:
+            Exception: Doesn't raise execptions directly, but may propagate exceptions from the Gmail API client if something goes wrong during draft creation.
+        """
         service = self.client.get_service()
         req = service.users().drafts().send(
             userId=settings.gmail_user_id,

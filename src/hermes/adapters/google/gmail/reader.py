@@ -406,6 +406,18 @@ class GmailReader:
         cursor: Optional[str] = None,
         include_snippets: bool = True,  # kept for signature parity; Gmail provides snippet in metadata
     ) -> Page[EmailThreadSummary]:
+        """
+        Return a email, and thread metadata up to a user defined limit.
+
+        Retrieves the threads from Google by applying filters. Keeps paginating until exaustion or limit reached. For each thread, fetches metadata and builds summary (with retries/jitter, but serially to avoid bursts).
+
+        Returns:
+            Page[EmailThreadSummary]: The requested threads metadata.
+
+        Raises:
+            Exception: Doesn't raise execptions, instead logs it and keeps iterating
+        """
+        
         svc = self.client.get_service()
         users = svc.users()
         threads = users.threads()
@@ -505,6 +517,17 @@ class GmailReader:
         *,
         include_bodies: bool = True,
     ) -> EmailThread:
+        """
+        Return one email, or threads complete envelope.
+
+        Retrieves the thread from Google via thread_id. Fetches all information enclosed in the thread including the full conversation (with retries/jitter, but serially to avoid bursts).
+
+        Returns:
+            EmailThread: The requested threads fulldata.
+
+        Raises:
+            Exception: Doesn't raise execptions, only logs completion
+        """
         svc = self.client.get_service()
         fmt = "full" if include_bodies else "metadata"
 
