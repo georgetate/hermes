@@ -282,8 +282,7 @@ class CalendarPort(Protocol):
         send_updates: bool = True,
     ) -> None:
         """
-        Delete a single event (or recurring master) by id.
-        Implementations should propagate provider-specific deletion behavior.
+        Deletes a specified occurrence of a repeating event and all future occurrences in the series.
         """
         raise NotImplementedError
     
