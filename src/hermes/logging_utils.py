@@ -1,4 +1,4 @@
-# src/hermes/logging.py
+# src/hermes/logging_utils.py
 """
 Structured logging setup with optional JSON output and redaction.
 - Console handler + rotating file handler
@@ -6,7 +6,7 @@ Structured logging setup with optional JSON output and redaction.
 - Redacts emails and bearer-like tokens if enabled in settings
 
 Example:
-    from hermes.logging import configure_logging, get_logger
+    from hermes.logging_utils import configure_logging, get_logger
     configure_logging()
     log = get_logger(__name__)
     log.info("service started", extra={"component": "triage"})
