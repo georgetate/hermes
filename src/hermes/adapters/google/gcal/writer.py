@@ -62,8 +62,8 @@ class GCalWriter:
     Mirrors the GmailWriter pattern:
       - _build_new_event() → constructs data transfer object (DTO)
       - create_new_event() → inserts into Google Calendar includes retries and returns event id
-      - delete_event() → deletes an event by it's id
-      - delete_all_after() → removes an recurring event and it's future instances
+      - delete_event() → deletes an event by its id
+      - delete_all_after() → removes a recurring event and its future instances
     """
 
     def __init__(self, client: Optional[GCalClient] = None) -> None:
@@ -186,7 +186,7 @@ class GCalWriter:
         send_updates: bool = True,
     ) -> None:
         """
-        Truncates a recurring event so that no occurrences exist after and inlcuding `cutoff_start`.
+        Truncates a recurring event so that no occurrences exist after and including `cutoff_start`.
         Equivalent to Google Calendar's 'Delete this and following events' option.
         """
         try:
