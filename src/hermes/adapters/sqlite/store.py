@@ -1,4 +1,4 @@
-# adapters/sqlite/store.py
+# src/hermes/adapters/sqlite/store.py
 
 from __future__ import annotations
 
