@@ -158,7 +158,7 @@ class EmailPort(Protocol):
     ) -> Page[EmailThreadSummary]:
         """
         Return a page of thread summaries representing changes since the given
-        history_id. The next_cursor in the returned Page is the new history_id
+        history_id. The next_sync_token in the returned Page is the new history_id
         to use for subsequent syncs.
         """
         raise NotImplementedError
@@ -172,7 +172,7 @@ class EmailPort(Protocol):
     ) -> Page[EmailThreadSummary]:
         """
         Perform a full sync of threads, optionally filtered by the given criteria.
-        The next_cursor in the returned Page is an opaque token to use for subsequent
+        The next_sync_token in the returned Page is an opaque token to use for subsequent
         incremental syncs.
         """
         raise NotImplementedError
