@@ -225,3 +225,7 @@ __marimo__/
 *.der
 *.p12
 *.env.local
+
+# testing files
+tests/
+tests/*
