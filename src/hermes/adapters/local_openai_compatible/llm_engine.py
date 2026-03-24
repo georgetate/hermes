@@ -26,6 +26,8 @@ class LocalOpenAICompatibleLLM(LLM):
         timeout_s: int | None = None,
         api_key: str | None = None,
     ) -> None:
+        """Configure a local OpenAI-compatible model endpoint."""
+
         resolved_settings = settings or get_settings()
 
         self.base_url = (
@@ -43,12 +45,16 @@ class LocalOpenAICompatibleLLM(LLM):
         *,
         tools: list[Tool] | None = None,
     ) -> LLMResponse:
+        """Send one chat-completions request and normalize the response."""
+
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [self._serialize_message(message) for message in messages],
         }
 
         if tools:
+            # OpenAI-compatible tool calling expects a list of tool specs and
+            # a tool selection mode.
             payload["tools"] = [self._serialize_tool(tool) for tool in tools]
             payload["tool_choice"] = "auto"
 
@@ -63,6 +69,8 @@ class LocalOpenAICompatibleLLM(LLM):
         url: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        """POST JSON to the local server and return the decoded JSON body."""
+
         body = json.dumps(payload).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
@@ -100,6 +108,8 @@ class LocalOpenAICompatibleLLM(LLM):
         return parsed
 
     def _parse_chat_response(self, payload: dict[str, Any]) -> LLMResponse:
+        """Convert the provider payload into the Hermes response contract."""
+
         choices = payload.get("choices") or []
         if not choices:
             raise RuntimeError("Local LLM response did not include any choices.")
@@ -115,6 +125,8 @@ class LocalOpenAICompatibleLLM(LLM):
 
     @staticmethod
     def _serialize_message(message: Message) -> dict[str, Any]:
+        """Convert a Hermes message into the provider wire format."""
+
         payload: dict[str, Any] = {
             "role": message.role,
             "content": message.content,
@@ -129,6 +141,8 @@ class LocalOpenAICompatibleLLM(LLM):
 
     @staticmethod
     def _serialize_tool(tool: Tool) -> dict[str, Any]:
+        """Convert a Hermes tool definition into an OpenAI-style schema."""
+
         return {
             "type": tool.tool_type,
             "function": {
@@ -140,6 +154,8 @@ class LocalOpenAICompatibleLLM(LLM):
 
     @staticmethod
     def _extract_content(content: Any) -> str | None:
+        """Normalize provider content variants into plain assistant text."""
+
         if content is None:
             return None
         if isinstance(content, str):
@@ -156,6 +172,8 @@ class LocalOpenAICompatibleLLM(LLM):
 
     @staticmethod
     def _extract_tool_calls(raw_tool_calls: Any) -> list[ToolCall]:
+        """Convert provider tool-call payloads into Hermes tool calls."""
+
         if not isinstance(raw_tool_calls, list):
             return []
 
@@ -166,6 +184,8 @@ class LocalOpenAICompatibleLLM(LLM):
 
             function_data = raw_tool_call.get("function") or {}
             arguments = function_data.get("arguments", {})
+            # Providers often return arguments as a JSON string rather than a
+            # decoded dict, so normalize here before returning the tool call.
             parsed_arguments = LocalOpenAICompatibleLLM._parse_tool_arguments(
                 arguments
             )
@@ -182,6 +202,8 @@ class LocalOpenAICompatibleLLM(LLM):
 
     @staticmethod
     def _parse_tool_arguments(arguments: Any) -> dict[str, object]:
+        """Parse tool arguments that may arrive as JSON text or a dict."""
+
         if isinstance(arguments, dict):
             return arguments
         if not isinstance(arguments, str):
@@ -200,6 +222,8 @@ class LocalOpenAICompatibleLLM(LLM):
 
     @staticmethod
     def _extract_usage(usage_data: Any) -> Usage | None:
+        """Convert provider usage metadata into the Hermes usage type."""
+
         if not isinstance(usage_data, dict):
             return None
 
@@ -211,6 +235,8 @@ class LocalOpenAICompatibleLLM(LLM):
 
     @staticmethod
     def _read_secret(secret: SecretStr | str | None) -> str | None:
+        """Return a plain string value from a secret-like config field."""
+
         if secret is None:
             return None
         if isinstance(secret, SecretStr):

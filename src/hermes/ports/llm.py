@@ -8,6 +8,8 @@ MessageRole = Literal["system", "user", "assistant", "tool"]
 
 @dataclass(slots=True)
 class Message:
+    """One message in the model conversation history."""
+
     role: MessageRole
     content: str
     name: str | None = None
@@ -16,6 +18,8 @@ class Message:
 
 @dataclass(slots=True)
 class Tool:
+    """LLM-visible tool definition using an OpenAI-style function schema."""
+
     name: str
     description: str
     input_schema: dict[str, object]
@@ -24,6 +28,8 @@ class Tool:
 
 @dataclass(slots=True)
 class ToolCall:
+    """A structured tool invocation requested by the model."""
+
     id: str
     name: str
     arguments: dict[str, object]
@@ -31,6 +37,8 @@ class ToolCall:
 
 @dataclass(slots=True)
 class Usage:
+    """Token usage metadata returned by the model provider."""
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -38,6 +46,8 @@ class Usage:
 
 @dataclass(slots=True)
 class LLMResponse:
+    """Normalized result of one model generation step."""
+
     content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: Usage | None = None
@@ -58,4 +68,6 @@ class LLM(ABC):
         *,
         tools: list[Tool] | None = None,
     ) -> LLMResponse:
+        """Generate the next assistant step from conversation history."""
+
         raise NotImplementedError
