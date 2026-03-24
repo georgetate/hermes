@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Sequence
 
-from hermes.ports.email import EmailPort, EmailThreadFilter, EmailThreadSummary
+from hermes.ports.email import EmailReadPort, EmailThreadFilter, EmailThreadSummary
 from hermes.ports.llm import Tool
 
 
@@ -12,7 +12,7 @@ from hermes.ports.llm import Tool
 class EmailReadService:
     """Read-side email orchestration for LLM-facing summary tools."""
 
-    email_port: EmailPort
+    email_port: EmailReadPort
 
     def summarize_emails(
         self,

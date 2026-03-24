@@ -139,14 +139,12 @@ class ReplyDraft:
     attachment_paths: Optional[Sequence[str]] = None
 
 
-# ---------- Outbound Email Port (gateway interface) ----------
+# ---------- Email Port Contracts ----------
 
-class EmailPort(Protocol):
+class EmailReadPort(Protocol):
     """
-    Provider-agnostic email gateway focused on THREADS as the primary unit.
-
-    Adapters (e.g., GmailAdapter, OutlookAdapter) implement this interface and
-    translate structured filters into provider-specific queries.
+    Provider-agnostic read-side email gateway focused on THREADS as the
+    primary unit.
     """
 
     # --- syncs ---
@@ -206,6 +204,10 @@ class EmailPort(Protocol):
         """
         raise NotImplementedError
 
+
+class EmailWritePort(Protocol):
+    """Provider-agnostic write-side email gateway for drafts and send flows."""
+
     # --- Writes (draft + send) ---
 
     def create_draft_new(self, draft: NewEmailDraft) -> str:
@@ -225,3 +227,11 @@ class EmailPort(Protocol):
         Send the draft. Returns provider message_id for the sent message.
         """
         raise NotImplementedError
+
+
+class EmailPort(EmailReadPort, EmailWritePort, Protocol):
+    """
+    Full provider-agnostic email gateway containing both read and write
+    operations. Concrete adapters may implement the full interface directly or
+    be composed from dedicated read/write implementations.
+    """
