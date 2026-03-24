@@ -72,9 +72,10 @@ class Settings(BaseSettings):
     oauth_port: int = 0           # 0 lets Google pick an open port
     app_user_agent: str = "hermes/0.1"
 
-
     # --- providers: OpenAI / LLM ---
     openai_api_key: SecretStr | None = Field(default=None)
+    local_llm_api_key: SecretStr | None = Field(default=None)
+    local_llm_base_url: str = Field(default="http://127.0.0.1:8080/v1")
     llm_model: str | None = Field(default="gpt-4o-mini")
     llm_timeout_s: int = 30
 
