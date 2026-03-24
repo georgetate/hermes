@@ -1,10 +1,5 @@
-from typing import Protocol
+from hermes.services.conversation_service import ConversationService
 
-
-class ConversationService(Protocol):
-    def handle_user_input(self, user_text: str) -> str:
-        """Return the assistant response for one user turn."""
-        raise NotImplementedError
 
 def run_cli(
     conversation_service: ConversationService,
