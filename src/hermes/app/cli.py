@@ -29,7 +29,7 @@ def run_cli(
         if not user_text:
             continue
 
-        if user_text.lower() in {"exit", "quit"}:
+        if user_text.lower() in {"exit", "quit", "bye", "goodbye"}:
             print("Goodbye.")
             return 0
 

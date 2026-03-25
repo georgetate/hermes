@@ -1,6 +1,8 @@
 from hermes.ports.calendar import (
     Attendee,
+    CalendarReadPort,
     CalendarPort,
+    CalendarWritePort,
     CalendarRef,
     Event,
     EventFilter,
@@ -31,7 +33,9 @@ __all__ = [
     "AttachmentMeta",
     "Attendee",
     "CalendarPage",
+    "CalendarReadPort",
     "CalendarPort",
+    "CalendarWritePort",
     "CalendarRef",
     "EmailAddress",
     "EmailMessage",

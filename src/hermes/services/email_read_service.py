@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from html import unescape
 from typing import Any, Sequence
 
-from hermes.ports.email import EmailReadPort, EmailThreadFilter, EmailThreadSummary
+from hermes.ports.email import (
+    AttachmentMeta,
+    EmailMessage,
+    EmailReadPort,
+    EmailThread,
+    EmailThreadFilter,
+    EmailThreadSummary,
+)
 from hermes.ports.llm import Tool
 
 
@@ -95,6 +104,59 @@ class EmailReadService:
             include_snippets=self._as_bool(arguments.get("include_snippets"), default=True),
         )
 
+    def read_full_email(
+        self,
+        *,
+        thread_id: str,
+        include_bodies: bool = True,
+        max_messages: int = 2,
+        max_chars_per_message: int = 1200,
+    ) -> dict[str, object]:
+        """Fetch a trimmed thread excerpt for one email conversation."""
+
+        thread = self.email_port.get_thread(
+            thread_id,
+            include_bodies=include_bodies,
+        )
+
+        normalized_max_messages = max(1, min(5, max_messages))
+        normalized_max_chars = max(200, min(3000, max_chars_per_message))
+
+        return {
+            "thread": self._serialize_full_thread(
+                thread,
+                include_bodies=include_bodies,
+                max_messages=normalized_max_messages,
+                max_chars_per_message=normalized_max_chars,
+            ),
+            "include_bodies": include_bodies,
+            "max_messages": normalized_max_messages,
+            "max_chars_per_message": normalized_max_chars,
+        }
+
+    def handle_read_full_email(self, arguments: dict[str, object]) -> dict[str, object]:
+        """Normalize raw tool-call arguments and run `read_full_email`."""
+
+        thread_id = self._as_str(arguments.get("thread_id"))
+        if thread_id is None:
+            raise ValueError("thread_id is required to read a full email thread.")
+
+        return self.read_full_email(
+            thread_id=thread_id,
+            include_bodies=self._as_bool(
+                arguments.get("include_bodies"),
+                default=True,
+            ),
+            max_messages=self._as_int(
+                arguments.get("max_messages"),
+                default=2,
+            ),
+            max_chars_per_message=self._as_int(
+                arguments.get("max_chars_per_message"),
+                default=1200,
+            ),
+        )
+
     @staticmethod
     def summarize_emails_tool() -> Tool:
         """Return the tool definition exposed to the language model."""
@@ -102,8 +164,7 @@ class EmailReadService:
         return Tool(
             name="summarize_emails",
             description=(
-                "List email threads for summarization. Supports filters for unread mail, "
-                "sender, recipient, subject, attachment presence, labels, and date range."
+                "List email threads with lightweight summaries and filters."
             ),
             input_schema={
                 "type": "object",
@@ -166,6 +227,46 @@ class EmailReadService:
         )
 
     @staticmethod
+    def read_full_email_tool() -> Tool:
+        """Return the tool definition for reading one full email thread."""
+
+        return Tool(
+            name="read_full_email",
+            description=(
+                "Read a trimmed excerpt of one email thread by thread id."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "thread_id": {
+                        "type": "string",
+                        "description": "The thread id to retrieve.",
+                    },
+                    "include_bodies": {
+                        "type": "boolean",
+                        "description": "Include text and HTML bodies when available.",
+                        "default": True,
+                    },
+                    "max_messages": {
+                        "type": "integer",
+                        "description": "Newest messages to include.",
+                        "minimum": 1,
+                        "maximum": 5,
+                        "default": 2,
+                    },
+                    "max_chars_per_message": {
+                        "type": "integer",
+                        "description": "Max cleaned body chars per message.",
+                        "minimum": 200,
+                        "maximum": 3000,
+                        "default": 1200,
+                    },
+                },
+                "required": ["thread_id"],
+            },
+        )
+
+    @staticmethod
     def _serialize_thread(thread: EmailThreadSummary) -> dict[str, object]:
         """Convert a thread summary into a JSON-friendly dict for tool output."""
 
@@ -185,6 +286,171 @@ class EmailReadService:
             "labels": list(thread.labels),
             "unread": thread.unread,
         }
+
+    @staticmethod
+    def _serialize_full_thread(
+        thread: EmailThread,
+        *,
+        include_bodies: bool,
+        max_messages: int,
+        max_chars_per_message: int,
+    ) -> dict[str, object]:
+        """Convert a thread into a trimmed, recent-message excerpt."""
+
+        selected_messages = list(thread.messages[-max_messages:])
+        return {
+            "id": thread.id,
+            "subject": thread.subject,
+            "last_updated": thread.last_updated.isoformat(),
+            "labels": list(thread.labels),
+            "message_count": len(thread.messages),
+            "included_message_count": len(selected_messages),
+            "omitted_older_message_count": max(
+                0,
+                len(thread.messages) - len(selected_messages),
+            ),
+            "messages": [
+                EmailReadService._serialize_message(
+                    message,
+                    include_bodies=include_bodies,
+                    max_chars_per_message=max_chars_per_message,
+                )
+                for message in selected_messages
+            ],
+        }
+
+    @staticmethod
+    def _serialize_message(
+        message: EmailMessage,
+        *,
+        include_bodies: bool = True,
+        max_chars_per_message: int = 1200,
+    ) -> dict[str, object]:
+        """Convert one message into a trimmed JSON-friendly dict."""
+
+        cleaned_body = (
+            EmailReadService._extract_message_excerpt(
+                message,
+                max_chars=max_chars_per_message,
+            )
+            if include_bodies
+            else None
+        )
+
+        return {
+            "id": message.id,
+            "thread_id": message.thread_id,
+            "subject": message.subject,
+            "from": EmailReadService._serialize_address(
+                message.from_.email,
+                message.from_.name,
+            ),
+            "to": [
+                EmailReadService._serialize_address(address.email, address.name)
+                for address in message.to
+            ],
+            "cc": [
+                EmailReadService._serialize_address(address.email, address.name)
+                for address in message.cc
+            ],
+            "bcc": [
+                EmailReadService._serialize_address(address.email, address.name)
+                for address in message.bcc
+            ],
+            "snippet": message.snippet,
+            "body_excerpt": cleaned_body,
+            "internal_ts": message.internal_ts.isoformat(),
+            "labels": list(message.labels),
+            "has_attachments": message.has_attachments,
+            "attachments": [
+                EmailReadService._serialize_attachment(attachment)
+                for attachment in message.attachments
+            ],
+        }
+
+    @staticmethod
+    def _serialize_attachment(attachment: AttachmentMeta) -> dict[str, object]:
+        """Convert attachment metadata into a JSON-friendly dict."""
+
+        return {
+            "id": attachment.id,
+            "filename": attachment.filename,
+            "mime_type": attachment.mime_type,
+            "size_bytes": attachment.size_bytes,
+            "content_id": attachment.content_id,
+        }
+
+    @staticmethod
+    def _serialize_address(email: str, name: str | None) -> dict[str, object]:
+        """Convert an email address into a JSON-friendly dict."""
+
+        return {
+            "email": email,
+            "name": name,
+        }
+
+    @staticmethod
+    def _extract_message_excerpt(
+        message: EmailMessage,
+        *,
+        max_chars: int,
+    ) -> str | None:
+        """Return a cleaned plain-text excerpt from the most useful message body."""
+
+        source = message.body_text
+        if not source and message.body_html:
+            source = EmailReadService._html_to_text(message.body_html)
+        if not source:
+            return None
+
+        cleaned = EmailReadService._clean_email_text(source)
+        if not cleaned:
+            return None
+        return EmailReadService._trim_text(cleaned, max_chars)
+
+    @staticmethod
+    def _html_to_text(value: str) -> str:
+        """Convert lightweight HTML content into readable plain text."""
+
+        without_tags = re.sub(r"<[^>]+>", " ", value)
+        return unescape(without_tags)
+
+    @staticmethod
+    def _clean_email_text(value: str) -> str:
+        """Strip common email noise such as quotes, signatures, and spacing."""
+
+        lines: list[str] = []
+        for raw_line in value.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            lower = line.lower()
+
+            if line.startswith(">"):
+                continue
+            if lower.startswith("on ") and " wrote:" in lower:
+                break
+            if lower.startswith("from:") and "@" in lower:
+                break
+            if line.startswith("--"):
+                break
+            if "sent from my" in lower:
+                break
+
+            lines.append(line)
+
+        return " ".join(lines)
+
+    @staticmethod
+    def _trim_text(text: str, max_chars: int) -> str:
+        """Collapse whitespace and trim text to a bounded size."""
+
+        normalized = " ".join(text.split())
+        if len(normalized) <= max_chars:
+            return normalized
+        if max_chars <= 3:
+            return normalized[:max_chars]
+        return normalized[: max_chars - 3].rstrip() + "..."
 
     @staticmethod
     def _serialize_filter(

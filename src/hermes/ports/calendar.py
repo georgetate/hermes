@@ -145,11 +145,11 @@ class EventFilter:
     free_text: Optional[str] = None  # Escape hatch for provider-specific search
 
 
-# ---------- Outbound Calendar Port ----------
+# ---------- Calendar Port Contracts ----------
 
-class CalendarPort(Protocol):
+class CalendarReadPort(Protocol):
     """
-    Provider-agnostic calendar gateway.
+    Provider-agnostic read-side calendar gateway.
 
     Listing behavior:
       - Always bounded by a TimeRange window.
@@ -198,9 +198,9 @@ class CalendarPort(Protocol):
 
     def list_events(
         self,
+        *,
         start: datetime,
         end: datetime,
-        *,
         calendar_ids: Optional[Sequence[str]] = None,
         include_cancelled: bool = False,
         expand: ExpandMode = "none",
@@ -238,7 +238,11 @@ class CalendarPort(Protocol):
         (adapters may internally call list_events(expand='instances') + get_event or an optimized API).
         """
         raise NotImplementedError
-    
+
+
+class CalendarWritePort(Protocol):
+    """Provider-agnostic write-side calendar gateway."""
+
     # --- Writes ---
     def _build_new_event(
         self,
@@ -287,4 +291,12 @@ class CalendarPort(Protocol):
         Delete a selected recurring instance and all following instances.
         """
         raise NotImplementedError
+
+
+class CalendarPort(CalendarReadPort, CalendarWritePort, Protocol):
+    """
+    Full provider-agnostic calendar gateway containing both read and write
+    operations. Concrete adapters may implement the full interface directly or
+    be composed from dedicated read/write implementations.
+    """
     

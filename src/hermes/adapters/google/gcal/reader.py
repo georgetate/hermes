@@ -386,7 +386,7 @@ class GCalReader:
         *,
         start: datetime,
         end: datetime,
-        calendar_ids: Optional[list[str]] = None,
+        calendar_ids: Optional[Sequence[str]] = None,
         include_cancelled: bool = False,
         expand: ExpandMode = 'none',
         filters: Optional[EventFilter] = None,
@@ -542,7 +542,7 @@ class GCalReader:
         start: datetime,
         end: datetime,
         *,
-        calendar_ids: Optional[list[str]] = None,
+        calendar_ids: Optional[Sequence[str]] = None,
         include_cancelled: bool = False,
     ) -> Sequence[Event]:
         """
