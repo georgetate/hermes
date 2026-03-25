@@ -265,7 +265,7 @@ class CalendarWritePort(Protocol):
         """
         raise NotImplementedError
 
-    def create_event(self, calendar_id: str, event: NewEvent) -> str:
+    def create_new_event(self, calendar_id: str, event: NewEvent) -> str:
         """
         Create a one-off or recurring event under the specified calendar.
         Returns the created event id (series master id if recurring).
