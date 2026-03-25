@@ -210,13 +210,13 @@ class EmailWritePort(Protocol):
 
     # --- Writes (draft + send) ---
 
-    def create_draft_new(self, draft: NewEmailDraft) -> str:
+    def create_new_draft(self, draft: NewEmailDraft) -> str:
         """
         Create a brand-new draft (not a reply). Returns draft_id.
         """
         raise NotImplementedError
 
-    def create_draft_reply(self, draft: ReplyDraft) -> str:
+    def create_reply_draft(self, draft: ReplyDraft, allow_reply_self: bool = False) -> str:
         """
         Create a reply draft within an existing thread. Returns draft_id.
         """
