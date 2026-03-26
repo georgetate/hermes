@@ -148,6 +148,14 @@ def build_conversation_service(
         email_write_service.handle_draft_reply_email,
     )
     conversation_service.register_tool(
+        email_write_service.mark_thread_read_tool(),
+        email_write_service.handle_mark_thread_read,
+    )
+    conversation_service.register_tool(
+        email_write_service.mark_thread_unread_tool(),
+        email_write_service.handle_mark_thread_unread,
+    )
+    conversation_service.register_tool(
         email_write_service.send_draft_tool(),
         email_write_service.handle_send_draft,
     )

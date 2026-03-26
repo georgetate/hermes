@@ -102,3 +102,11 @@ class GmailAdapter(EmailPort):
     def send_draft(self, draft_id: str) -> str:
         """Delegate draft sending to the write adapter."""
         return self.writer.send_draft(draft_id)
+
+    def mark_thread_read(self, thread_id: str) -> None:
+        """Delegate marking a thread as read to the write adapter."""
+        self.writer.mark_thread_read(thread_id)
+
+    def mark_thread_unread(self, thread_id: str) -> None:
+        """Delegate marking a thread as unread to the write adapter."""
+        self.writer.mark_thread_unread(thread_id)

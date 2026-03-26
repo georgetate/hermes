@@ -32,7 +32,7 @@ class ConversationService:
     max_recent_messages: int = 8
     max_summary_chars: int = 1800
     max_message_chars: int = 1200
-    max_tool_message_chars: int = 1800
+    max_tool_message_chars: int = 3600
     max_tool_description_chars: int = 120
     max_tool_property_description_chars: int = 80
 

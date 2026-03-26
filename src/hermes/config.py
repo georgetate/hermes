@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     local_llm_api_key: SecretStr | None = Field(default=None)
     local_llm_base_url: str = Field(default="http://127.0.0.1:8080/v1")
     llm_model: str | None = Field(default="gpt-4o-mini")
-    llm_timeout_s: int = 30
+    llm_timeout_s: int = 60
 
     # --- logging ---
     log_level: str = Field(default="INFO")

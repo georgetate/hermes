@@ -13,6 +13,40 @@ class EmailWriteService:
 
     email_port: EmailWritePort
 
+    def mark_thread_read(
+        self,
+        *,
+        thread_id: str,
+    ) -> dict[str, object]:
+        """Mark an existing email thread as read."""
+
+        normalized_thread_id = thread_id.strip()
+        if not normalized_thread_id:
+            raise ValueError("thread_id is required to mark a thread as read.")
+
+        self.email_port.mark_thread_read(normalized_thread_id)
+        return {
+            "thread_id": normalized_thread_id,
+            "marked_read": True,
+        }
+
+    def mark_thread_unread(
+        self,
+        *,
+        thread_id: str,
+    ) -> dict[str, object]:
+        """Mark an existing email thread as unread."""
+
+        normalized_thread_id = thread_id.strip()
+        if not normalized_thread_id:
+            raise ValueError("thread_id is required to mark a thread as unread.")
+
+        self.email_port.mark_thread_unread(normalized_thread_id)
+        return {
+            "thread_id": normalized_thread_id,
+            "marked_unread": True,
+        }
+
     def send_draft(
         self,
         *,
@@ -154,6 +188,24 @@ class EmailWriteService:
 
         return self.send_draft(draft_id=draft_id)
 
+    def handle_mark_thread_read(self, arguments: dict[str, object]) -> dict[str, object]:
+        """Normalize raw tool-call arguments and run `mark_thread_read`."""
+
+        thread_id = self._as_str(arguments.get("thread_id"))
+        if thread_id is None:
+            raise ValueError("thread_id is required to mark a thread as read.")
+
+        return self.mark_thread_read(thread_id=thread_id)
+
+    def handle_mark_thread_unread(self, arguments: dict[str, object]) -> dict[str, object]:
+        """Normalize raw tool-call arguments and run `mark_thread_unread`."""
+
+        thread_id = self._as_str(arguments.get("thread_id"))
+        if thread_id is None:
+            raise ValueError("thread_id is required to mark a thread as unread.")
+
+        return self.mark_thread_unread(thread_id=thread_id)
+
     @staticmethod
     def draft_email_tool() -> Tool:
         """Return the tool definition for creating a new email draft."""
@@ -261,6 +313,46 @@ class EmailWriteService:
                 "additionalProperties": False,
             },
             requires_confirmation=True,
+        )
+
+    @staticmethod
+    def mark_thread_read_tool() -> Tool:
+        """Return the tool definition for marking a thread as read."""
+
+        return Tool(
+            name="mark_thread_read",
+            description="Mark an email thread as read by thread id.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "thread_id": {
+                        "type": "string",
+                        "description": "The email thread id to mark as read.",
+                    },
+                },
+                "required": ["thread_id"],
+                "additionalProperties": False,
+            },
+        )
+
+    @staticmethod
+    def mark_thread_unread_tool() -> Tool:
+        """Return the tool definition for marking a thread as unread."""
+
+        return Tool(
+            name="mark_thread_unread",
+            description="Mark an email thread as unread by thread id.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "thread_id": {
+                        "type": "string",
+                        "description": "The email thread id to mark as unread.",
+                    },
+                },
+                "required": ["thread_id"],
+                "additionalProperties": False,
+            },
         )
 
     @staticmethod

@@ -228,6 +228,18 @@ class EmailWritePort(Protocol):
         """
         raise NotImplementedError
 
+    def mark_thread_read(self, thread_id: str) -> None:
+        """
+        Mark an existing thread as read.
+        """
+        raise NotImplementedError
+
+    def mark_thread_unread(self, thread_id: str) -> None:
+        """
+        Mark an existing thread as unread.
+        """
+        raise NotImplementedError
+
 
 class EmailPort(EmailReadPort, EmailWritePort, Protocol):
     """

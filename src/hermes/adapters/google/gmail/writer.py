@@ -124,6 +124,13 @@ class _ThreadsResource(Protocol):
         format: str,
         metadataHeaders: List[str],
     ) -> HttpRequest: ...
+    def modify(
+        self,
+        *,
+        userId: str,
+        id: str,
+        body: dict[str, object],
+    ) -> HttpRequest: ...
 
 class _UsersResource(Protocol):
     def threads(self) -> _ThreadsResource: ...
@@ -433,3 +440,27 @@ class GmailWriter:
         msg_id = (resp.get("id") or resp.get("message", {}).get("id")) if isinstance(resp, dict) else None
         log.info("gmail.writer.send_draft_done", extra={"draft_id": draft_id, "message_id": msg_id})
         return msg_id or ""
+
+    def mark_thread_read(self, thread_id: str) -> None:
+        """Mark a Gmail thread as read by removing the UNREAD label."""
+
+        service = self.client.get_service()
+        req = service.users().threads().modify(
+            userId=settings.gmail_user_id,
+            id=thread_id,
+            body={"removeLabelIds": ["UNREAD"]},
+        )
+        _execute_with_retries(req)
+        log.info("gmail.writer.mark_thread_read_done", extra={"thread_id": thread_id})
+
+    def mark_thread_unread(self, thread_id: str) -> None:
+        """Mark a Gmail thread as unread by adding the UNREAD label."""
+
+        service = self.client.get_service()
+        req = service.users().threads().modify(
+            userId=settings.gmail_user_id,
+            id=thread_id,
+            body={"addLabelIds": ["UNREAD"]},
+        )
+        _execute_with_retries(req)
+        log.info("gmail.writer.mark_thread_unread_done", extra={"thread_id": thread_id})
