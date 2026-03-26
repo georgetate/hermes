@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Sequence
 
+from hermes.config import Settings, get_settings
 from hermes.ports.calendar import (
     Attendee,
     CalendarWritePort,
@@ -17,11 +18,12 @@ class CalendarWriteService:
     """Write-side calendar orchestration for LLM-facing create-event flows."""
 
     calendar_port: CalendarWritePort
+    settings: Settings = field(default_factory=get_settings)
 
     def create_event(
         self,
         *,
-        calendar_id: str,
+        calendar_id: str | None = None,
         title: str,
         start: str,
         end: str,
@@ -35,15 +37,23 @@ class CalendarWriteService:
     ) -> dict[str, object]:
         """Create one calendar event and return a compact event summary."""
 
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise ValueError("Event title is required.")
+
+        resolved_calendar_id = calendar_id or self.settings.gcal_calendar_id
+        resolved_timezone_name = timezone_name or self.settings.timezone
         start_dt = self._parse_event_boundary(
             start,
-            timezone_name=timezone_name,
+            timezone_name=resolved_timezone_name,
+            default_timezone_name=self.settings.timezone,
             all_day=all_day,
             is_end=False,
         )
         end_dt = self._parse_event_boundary(
             end,
-            timezone_name=timezone_name,
+            timezone_name=resolved_timezone_name,
+            default_timezone_name=self.settings.timezone,
             all_day=all_day,
             is_end=True,
         )
@@ -59,22 +69,22 @@ class CalendarWriteService:
         attendees = self._as_attendees(attendee_emails)
         reminders = self._as_reminders(reminder_minutes)
         event = self.calendar_port._build_new_event(
-            title=title,
+            title=normalized_title,
             start=start_dt,
             end=end_dt,
             all_day=all_day,
-            timezone=timezone_name,
+            timezone=resolved_timezone_name,
             location=location,
             description=description,
             attendees=attendees,
             reminders=reminders,
             has_conference_link=has_conference_link,
         )
-        event_id = self.calendar_port.create_new_event(calendar_id, event)
+        event_id = self.calendar_port.create_new_event(resolved_calendar_id, event)
 
         return {
             "event_id": event_id,
-            "calendar_id": calendar_id,
+            "calendar_id": resolved_calendar_id,
             "title": event.title,
             "start": event.start.isoformat(),
             "end": event.end.isoformat(),
@@ -98,8 +108,6 @@ class CalendarWriteService:
         title = self._as_str(arguments.get("title"))
         start = self._as_str(arguments.get("start"))
         end = self._as_str(arguments.get("end"))
-        if calendar_id is None:
-            raise ValueError("calendar_id is required to create a calendar event.")
         if title is None:
             raise ValueError("title is required to create a calendar event.")
         if start is None:
@@ -108,7 +116,7 @@ class CalendarWriteService:
             raise ValueError("end is required to create a calendar event.")
 
         return self.create_event(
-            calendar_id=calendar_id,
+            calendar_id=self._normalize_calendar_id(calendar_id),
             title=title,
             start=start,
             end=end,
@@ -123,19 +131,54 @@ class CalendarWriteService:
             ),
         )
 
+    def delete_event(
+        self,
+        *,
+        event_id: str,
+        calendar_id: str | None = None,
+    ) -> dict[str, object]:
+        """Delete one calendar event and return a compact confirmation payload."""
+
+        normalized_event_id = event_id.strip()
+        if not normalized_event_id:
+            raise ValueError("event_id is required to delete a calendar event.")
+
+        resolved_calendar_id = self._normalize_calendar_id(calendar_id)
+        self.calendar_port.delete_event(
+            resolved_calendar_id,
+            normalized_event_id,
+        )
+        return {
+            "deleted": True,
+            "event_id": normalized_event_id,
+            "calendar_id": resolved_calendar_id,
+        }
+
+    def handle_delete_event(self, arguments: dict[str, object]) -> dict[str, object]:
+        """Normalize raw tool-call arguments and run `delete_event`."""
+
+        event_id = self._as_str(arguments.get("event_id"))
+        if event_id is None:
+            raise ValueError("event_id is required to delete a calendar event.")
+
+        return self.delete_event(
+            event_id=event_id,
+            calendar_id=self._as_str(arguments.get("calendar_id")),
+        )
+
     @staticmethod
     def create_event_tool() -> Tool:
         """Return the tool definition for creating a calendar event."""
 
         return Tool(
             name="create_calendar_event",
-            description="Create one calendar event.",
+            description="Create one calendar event. Omit calendar_id to use the primary calendar.",
             input_schema={
                 "type": "object",
                 "properties": {
                     "calendar_id": {
                         "type": "string",
-                        "description": "Calendar id to create the event in.",
+                        "description": "Optional calendar id. Omit to use the primary calendar.",
                     },
                     "title": {
                         "type": "string",
@@ -143,11 +186,11 @@ class CalendarWriteService:
                     },
                     "start": {
                         "type": "string",
-                        "description": "Start as ISO-8601 datetime or YYYY-MM-DD.",
+                        "description": "Start as ISO-8601 datetime or YYYY-MM-DD using today's date context.",
                     },
                     "end": {
                         "type": "string",
-                        "description": "End as ISO-8601 datetime or YYYY-MM-DD.",
+                        "description": "End as ISO-8601 datetime or YYYY-MM-DD using today's date context.",
                     },
                     "all_day": {
                         "type": "boolean",
@@ -181,7 +224,32 @@ class CalendarWriteService:
                         "description": "Whether to request a conference link if supported.",
                     },
                 },
-                "required": ["calendar_id", "title", "start", "end"],
+                "required": ["title", "start", "end"],
+                "additionalProperties": False,
+            },
+        )
+
+    @staticmethod
+    def delete_event_tool() -> Tool:
+        """Return the tool definition for deleting a calendar event."""
+
+        return Tool(
+            name="delete_calendar_event",
+            description="Delete one calendar event by event id.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "string",
+                        "description": "The event id to delete.",
+                    },
+                    "calendar_id": {
+                        "type": "string",
+                        "description": "Optional calendar id. Omit to use the primary calendar.",
+                    },
+                },
+                "required": ["event_id"],
+                "additionalProperties": False,
             },
         )
 
@@ -190,6 +258,7 @@ class CalendarWriteService:
         value: str,
         *,
         timezone_name: str | None,
+        default_timezone_name: str | None,
         all_day: bool,
         is_end: bool,
     ) -> datetime:
@@ -202,24 +271,39 @@ class CalendarWriteService:
                 return CalendarWriteService._attach_timezone(
                     datetime.combine(target_date, time.min),
                     timezone_name,
+                    default_timezone_name,
                 )
             return CalendarWriteService._attach_timezone(
                 datetime.combine(parsed, time.min),
                 timezone_name,
+                default_timezone_name,
             )
-        return CalendarWriteService._attach_timezone(parsed, timezone_name)
+        return CalendarWriteService._attach_timezone(
+            parsed,
+            timezone_name,
+            default_timezone_name,
+        )
 
     @staticmethod
-    def _attach_timezone(value: datetime, timezone_name: str | None) -> datetime:
-        """Ensure a datetime is timezone-aware, defaulting to UTC."""
+    def _attach_timezone(
+        value: datetime,
+        timezone_name: str | None,
+        default_timezone_name: str | None,
+    ) -> datetime:
+        """Ensure a datetime is timezone-aware, defaulting to app local time."""
 
         if value.tzinfo is not None:
             return value
         try:
             from zoneinfo import ZoneInfo
 
+            resolved_timezone_name = timezone_name or default_timezone_name
             return value.replace(
-                tzinfo=ZoneInfo(timezone_name) if timezone_name else timezone.utc
+                tzinfo=(
+                    ZoneInfo(resolved_timezone_name)
+                    if resolved_timezone_name is not None
+                    else timezone.utc
+                )
             )
         except Exception:
             return value.replace(tzinfo=timezone.utc)
@@ -350,6 +434,11 @@ class CalendarWriteService:
                     items.append(parsed)
             return items or None
         return None
+
+    def _normalize_calendar_id(self, calendar_id: str | None) -> str:
+        """Resolve a missing calendar id to the configured default calendar."""
+
+        return calendar_id or self.settings.gcal_calendar_id
 
     @staticmethod
     def _trim_text(text: str, max_chars: int) -> str:

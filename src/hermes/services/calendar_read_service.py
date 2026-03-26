@@ -6,6 +6,7 @@ from typing import Sequence
 
 from hermes.ports.calendar import (
     Attendee,
+    CalendarRef,
     CalendarReadPort,
     Event,
     EventFilter,
@@ -21,6 +22,24 @@ class CalendarReadService:
 
     calendar_port: CalendarReadPort
     default_window_days: int = 14
+
+    def list_calendars(self) -> dict[str, object]:
+        """Return readable calendars available to the assistant."""
+
+        calendars = self.calendar_port.list_calendars()
+        return {
+            "returned_count": len(calendars),
+            "calendars": [
+                self._serialize_calendar_ref(calendar)
+                for calendar in calendars
+            ],
+        }
+
+    def handle_list_calendars(self, arguments: dict[str, object]) -> dict[str, object]:
+        """Ignore raw tool arguments and return the available calendars."""
+
+        del arguments
+        return self.list_calendars()
 
     def summarize_calendar(
         self,
@@ -241,6 +260,20 @@ class CalendarReadService:
             },
         )
 
+    @staticmethod
+    def list_calendars_tool() -> Tool:
+        """Return the tool definition for listing available calendars."""
+
+        return Tool(
+            name="list_calendars",
+            description="List readable calendars with ids and names.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        )
+
     def _resolve_window(
         self,
         *,
@@ -277,6 +310,17 @@ class CalendarReadService:
             "series_id": event.series_id,
             "has_conference_link": event.has_conference_link,
             "status": event.status,
+        }
+
+    @staticmethod
+    def _serialize_calendar_ref(calendar: CalendarRef) -> dict[str, object]:
+        """Convert a calendar reference into a JSON-friendly dict."""
+
+        return {
+            "id": calendar.id,
+            "name": calendar.name,
+            "timezone": calendar.timezone,
+            "is_primary": calendar.is_primary,
         }
 
     @staticmethod

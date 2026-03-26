@@ -33,6 +33,7 @@ class ConversationService:
     
     def handle_user_input(self, user_text: str) -> str:
         self.history.append(Message(role="user", content=user_text))
+        tool_result_cache: dict[str, str] = {}
 
         for _ in range(self.max_tool_rounds):
             self._rebuild_context_messages()
@@ -46,7 +47,13 @@ class ConversationService:
                 return final_response
 
             for tool_call in response.tool_calls:
-                tool_output = self._execute_tool_call(tool_call)
+                cache_key = self._side_effecting_tool_cache_key(tool_call)
+                if cache_key is not None and cache_key in tool_result_cache:
+                    tool_output = tool_result_cache[cache_key]
+                else:
+                    tool_output = self._execute_tool_call(tool_call)
+                    if cache_key is not None:
+                        tool_result_cache[cache_key] = tool_output
                 self.history.append(
                     Message(
                         role="tool",
@@ -187,6 +194,39 @@ class ConversationService:
             ),
             input_schema=compact_schema,
             tool_type=tool.tool_type,
+        )
+
+    @staticmethod
+    def _side_effecting_tool_cache_key(tool_call: ToolCall) -> str | None:
+        """Cache duplicate write-tool calls within a turn to avoid repeats."""
+
+        if not ConversationService._is_side_effecting_tool(tool_call.name):
+            return None
+
+        try:
+            serialized_args = json.dumps(
+                tool_call.arguments,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        except TypeError:
+            serialized_args = str(tool_call.arguments)
+        return f"{tool_call.name}:{serialized_args}"
+
+    @staticmethod
+    def _is_side_effecting_tool(tool_name: str) -> bool:
+        """Heuristically identify tools that should not run twice by accident."""
+
+        return tool_name.startswith(
+            (
+                "create_",
+                "delete_",
+                "update_",
+                "modify_",
+                "draft_",
+                "send_",
+            )
         )
 
     @staticmethod
