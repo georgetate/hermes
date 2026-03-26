@@ -13,6 +13,24 @@ class EmailWriteService:
 
     email_port: EmailWritePort
 
+    def send_draft(
+        self,
+        *,
+        draft_id: str,
+    ) -> dict[str, object]:
+        """Send an existing draft and return a compact confirmation payload."""
+
+        normalized_draft_id = draft_id.strip()
+        if not normalized_draft_id:
+            raise ValueError("draft_id is required to send a draft.")
+
+        message_id = self.email_port.send_draft(normalized_draft_id)
+        return {
+            "draft_id": normalized_draft_id,
+            "message_id": message_id,
+            "sent": True,
+        }
+
     def draft_email(
         self,
         *,
@@ -127,6 +145,15 @@ class EmailWriteService:
             attachment_paths=self._as_str_list(arguments.get("attachment_paths")),
         )
 
+    def handle_send_draft(self, arguments: dict[str, object]) -> dict[str, object]:
+        """Normalize raw tool-call arguments and run `send_draft`."""
+
+        draft_id = self._as_str(arguments.get("draft_id"))
+        if draft_id is None:
+            raise ValueError("draft_id is required to send a draft.")
+
+        return self.send_draft(draft_id=draft_id)
+
     @staticmethod
     def draft_email_tool() -> Tool:
         """Return the tool definition for creating a new email draft."""
@@ -213,6 +240,27 @@ class EmailWriteService:
                 },
                 "required": ["thread_id"],
             },
+        )
+
+    @staticmethod
+    def send_draft_tool() -> Tool:
+        """Return the tool definition for sending an existing draft."""
+
+        return Tool(
+            name="send_draft",
+            description="Send an existing email draft by draft id.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "draft_id": {
+                        "type": "string",
+                        "description": "The draft id to send.",
+                    },
+                },
+                "required": ["draft_id"],
+                "additionalProperties": False,
+            },
+            requires_confirmation=True,
         )
 
     @staticmethod
