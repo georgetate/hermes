@@ -228,6 +228,12 @@ class EmailWritePort(Protocol):
         """
         raise NotImplementedError
 
+    def delete_draft(self, draft_id: str) -> None:
+        """
+        Delete an existing draft.
+        """
+        raise NotImplementedError
+
     def mark_thread_read(self, thread_id: str) -> None:
         """
         Mark an existing thread as read.

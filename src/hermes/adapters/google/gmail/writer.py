@@ -441,6 +441,17 @@ class GmailWriter:
         log.info("gmail.writer.send_draft_done", extra={"draft_id": draft_id, "message_id": msg_id})
         return msg_id or ""
 
+    def delete_draft(self, draft_id: str) -> None:
+        """Delete an existing Gmail draft."""
+
+        service = self.client.get_service()
+        req = service.users().drafts().delete(
+            userId=settings.gmail_user_id,
+            id=draft_id,
+        )
+        _execute_with_retries(req)
+        log.info("gmail.writer.delete_draft_done", extra={"draft_id": draft_id})
+
     def mark_thread_read(self, thread_id: str) -> None:
         """Mark a Gmail thread as read by removing the UNREAD label."""
 

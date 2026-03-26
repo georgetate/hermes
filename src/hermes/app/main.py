@@ -160,6 +160,10 @@ def build_conversation_service(
         email_write_service.handle_send_draft,
     )
     conversation_service.register_tool(
+        email_write_service.delete_draft_tool(),
+        email_write_service.handle_delete_draft,
+    )
+    conversation_service.register_tool(
         calendar_write_service.create_event_tool(),
         calendar_write_service.handle_create_event,
     )

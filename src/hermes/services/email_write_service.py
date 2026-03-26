@@ -65,6 +65,23 @@ class EmailWriteService:
             "sent": True,
         }
 
+    def delete_draft(
+        self,
+        *,
+        draft_id: str,
+    ) -> dict[str, object]:
+        """Delete an existing draft and return a compact confirmation payload."""
+
+        normalized_draft_id = draft_id.strip()
+        if not normalized_draft_id:
+            raise ValueError("draft_id is required to delete a draft.")
+
+        self.email_port.delete_draft(normalized_draft_id)
+        return {
+            "draft_id": normalized_draft_id,
+            "deleted": True,
+        }
+
     def draft_email(
         self,
         *,
@@ -188,6 +205,15 @@ class EmailWriteService:
 
         return self.send_draft(draft_id=draft_id)
 
+    def handle_delete_draft(self, arguments: dict[str, object]) -> dict[str, object]:
+        """Normalize raw tool-call arguments and run `delete_draft`."""
+
+        draft_id = self._as_str(arguments.get("draft_id"))
+        if draft_id is None:
+            raise ValueError("draft_id is required to delete a draft.")
+
+        return self.delete_draft(draft_id=draft_id)
+
     def handle_mark_thread_read(self, arguments: dict[str, object]) -> dict[str, object]:
         """Normalize raw tool-call arguments and run `mark_thread_read`."""
 
@@ -307,6 +333,27 @@ class EmailWriteService:
                     "draft_id": {
                         "type": "string",
                         "description": "The draft id to send.",
+                    },
+                },
+                "required": ["draft_id"],
+                "additionalProperties": False,
+            },
+            requires_confirmation=True,
+        )
+
+    @staticmethod
+    def delete_draft_tool() -> Tool:
+        """Return the tool definition for deleting an existing draft."""
+
+        return Tool(
+            name="delete_draft",
+            description="Delete an existing email draft by draft id.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "draft_id": {
+                        "type": "string",
+                        "description": "The draft id to delete.",
                     },
                 },
                 "required": ["draft_id"],
