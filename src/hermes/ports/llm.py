@@ -24,6 +24,7 @@ class Tool:
     description: str
     input_schema: dict[str, object]
     tool_type: str = "function"
+    requires_confirmation: bool = False
 
 
 @dataclass(slots=True)

@@ -251,6 +251,7 @@ class CalendarWriteService:
                 "required": ["event_id"],
                 "additionalProperties": False,
             },
+            requires_confirmation=True,
         )
 
     @staticmethod

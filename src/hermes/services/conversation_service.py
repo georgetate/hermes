@@ -6,6 +6,15 @@ from hermes.ports.llm import LLM, LLMResponse, Message, Tool, ToolCall
 
 
 ToolHandler = Callable[[dict[str, object]], object]
+ConfirmationFormatter = Callable[[dict[str, object]], str]
+
+
+@dataclass(slots=True)
+class PendingToolAction:
+    """A destructive tool call waiting for explicit user confirmation."""
+
+    tool_call: ToolCall
+    confirmation_preview: str
 
 
 @dataclass(slots=True)
@@ -13,8 +22,11 @@ class ConversationService:
     llm: LLM
     tools: list[Tool] = field(default_factory=list)
     tool_handlers: dict[str, ToolHandler] = field(default_factory=dict)
+    confirmation_formatters: dict[str, ConfirmationFormatter] = field(default_factory=dict)
+    tools_requiring_confirmation: set[str] = field(default_factory=set)
     history: list[Message] = field(default_factory=list)
     context_messages: list[Message] = field(default_factory=list)
+    pending_action: PendingToolAction | None = None
     system_prompt: str | None = None
     max_tool_rounds: int = 8
     max_recent_messages: int = 8
@@ -27,13 +39,29 @@ class ConversationService:
     def __post_init__(self) -> None:
         self._rebuild_context_messages()
 
-    def register_tool(self, tool: Tool, handler: ToolHandler) -> None:
+    def register_tool(
+        self,
+        tool: Tool,
+        handler: ToolHandler,
+        *,
+        confirmation_formatter: ConfirmationFormatter | None = None,
+    ) -> None:
         self.tools.append(self._compact_tool(tool))
         self.tool_handlers[tool.name] = handler
+        if tool.requires_confirmation:
+            self.tools_requiring_confirmation.add(tool.name)
+        if confirmation_formatter is not None:
+            self.confirmation_formatters[tool.name] = confirmation_formatter
     
     def handle_user_input(self, user_text: str) -> str:
         self.history.append(Message(role="user", content=user_text))
-        tool_result_cache: dict[str, str] = {}
+        if self.pending_action is not None:
+            return self._handle_pending_action_response(user_text)
+
+        return self._run_llm_turns(tool_result_cache={})
+
+    def _run_llm_turns(self, *, tool_result_cache: dict[str, str]) -> str:
+        """Run the assistant/tool loop until a user-facing response is ready."""
 
         for _ in range(self.max_tool_rounds):
             self._rebuild_context_messages()
@@ -47,6 +75,13 @@ class ConversationService:
                 return final_response
 
             for tool_call in response.tool_calls:
+                if self._requires_confirmation(tool_call):
+                    confirmation_message = self._queue_pending_action(tool_call)
+                    self.history.append(
+                        Message(role="assistant", content=confirmation_message)
+                    )
+                    return confirmation_message
+
                 cache_key = self._side_effecting_tool_cache_key(tool_call)
                 if cache_key is not None and cache_key in tool_result_cache:
                     tool_output = tool_result_cache[cache_key]
@@ -66,6 +101,42 @@ class ConversationService:
         raise RuntimeError(
             "Conversation exceeded the maximum number of tool rounds."
         )
+
+    def _handle_pending_action_response(self, user_text: str) -> str:
+        """Resolve a pending destructive action via explicit confirm/cancel."""
+
+        pending_action = self.pending_action
+        if pending_action is None:
+            return self._run_llm_turns(tool_result_cache={})
+
+        if self._is_confirmation_reply(user_text):
+            self.pending_action = None
+            tool_output = self._execute_tool_call(pending_action.tool_call)
+            self.history.append(
+                Message(
+                    role="tool",
+                    content=tool_output,
+                    name=pending_action.tool_call.name,
+                    tool_call_id=pending_action.tool_call.id,
+                )
+            )
+            return self._run_llm_turns(tool_result_cache={})
+
+        if self._is_cancellation_reply(user_text):
+            self.pending_action = None
+            cancellation_message = "Cancelled the pending action. No changes were made."
+            self.history.append(
+                Message(role="assistant", content=cancellation_message)
+            )
+            return cancellation_message
+
+        reminder_message = (
+            self._format_confirmation_message(
+                pending_action.confirmation_preview
+            )
+        )
+        self.history.append(Message(role="assistant", content=reminder_message))
+        return reminder_message
 
     def _record_llm_response(self, response: LLMResponse) -> str:
         assistant_text = response.content or ""
@@ -194,7 +265,81 @@ class ConversationService:
             ),
             input_schema=compact_schema,
             tool_type=tool.tool_type,
+            requires_confirmation=tool.requires_confirmation,
         )
+
+    def _queue_pending_action(self, tool_call: ToolCall) -> str:
+        """Store a destructive action and return its confirmation prompt."""
+
+        confirmation_preview = self._build_confirmation_preview(tool_call)
+        self.pending_action = PendingToolAction(
+            tool_call=tool_call,
+            confirmation_preview=confirmation_preview,
+        )
+        return self._format_confirmation_message(confirmation_preview)
+
+    def _build_confirmation_preview(self, tool_call: ToolCall) -> str:
+        """Render a deterministic preview for a pending action."""
+
+        formatter = self.confirmation_formatters.get(tool_call.name)
+        return (
+            formatter(tool_call.arguments)
+            if formatter is not None
+            else self._default_confirmation_preview(tool_call)
+        )
+
+    @staticmethod
+    def _format_confirmation_message(preview: str) -> str:
+        """Wrap a pending-action preview in the standard confirm/cancel text."""
+
+        return (
+            "This action requires confirmation before I can continue.\n"
+            f"{preview}\n"
+            "Reply 'confirm' to continue or 'cancel' to stop."
+        )
+
+    def _default_confirmation_preview(self, tool_call: ToolCall) -> str:
+        """Render a generic action preview from the tool name and arguments."""
+
+        if not tool_call.arguments:
+            return f"Pending action: {tool_call.name}"
+
+        preview_lines = [f"Pending action: {tool_call.name}", "Arguments:"]
+        for key in sorted(tool_call.arguments):
+            preview_lines.append(
+                f"- {key}: {self._serialize_confirmation_value(tool_call.arguments[key])}"
+            )
+        return "\n".join(preview_lines)
+
+    @staticmethod
+    def _serialize_confirmation_value(value: object) -> str:
+        """Render a tool argument into a compact single-line preview."""
+
+        if isinstance(value, str):
+            return value
+        try:
+            return json.dumps(value, default=str)
+        except TypeError:
+            return str(value)
+
+    def _requires_confirmation(self, tool_call: ToolCall) -> bool:
+        """Return whether a tool call should pause for user confirmation."""
+
+        return tool_call.name in self.tools_requiring_confirmation
+
+    @staticmethod
+    def _is_confirmation_reply(user_text: str) -> bool:
+        """Recognize explicit approval replies for a pending action."""
+
+        normalized = " ".join(user_text.strip().lower().split())
+        return normalized in {"confirm", "confirm it", "yes", "yes confirm", "proceed"}
+
+    @staticmethod
+    def _is_cancellation_reply(user_text: str) -> bool:
+        """Recognize explicit cancellation replies for a pending action."""
+
+        normalized = " ".join(user_text.strip().lower().split())
+        return normalized in {"cancel", "no", "stop", "abort", "never mind"}
 
     @staticmethod
     def _side_effecting_tool_cache_key(tool_call: ToolCall) -> str | None:
