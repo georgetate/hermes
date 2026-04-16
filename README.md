@@ -1,23 +1,20 @@
 # Hermes
-Hermes is a modular personal-assistant backend focused on email and calendar workflows.
-The project uses a ports-and-adapters (hexagonal) design so provider integrations can be swapped with minimal changes to business logic.
+Hermes is a personal assistant that is focused on email and calendar services. The project uses an interface based design, so new providers can be added with minimal changes to other layers of the repository.
 
 ## Architecture
-- `src/hermes/ports/email.py` and `src/hermes/ports/calendar.py` define provider-agnostic contracts for messaging and scheduling.
-- `src/hermes/ports/storage.py` defines persistence contracts for cached domain objects and sync cursors.
-- Adapter modules (Google, SQLite, and future providers) implement those contracts without leaking provider-specific shapes into core types.
-- This structure keeps auth, transport, normalization, and storage concerns isolated and testable.
+- `src/hermes/ports/email.py` and `src/hermes/ports/calendar.py` define contracts for messaging and scheduling that a specific provider must fulfill.
+- `src/hermes/ports/storage.py` defines the interface for the data persistence service.
+- Adapter modules (Google, SQLite, and future providers) implement those contracts and connect to the email and calendar interfaces.
+- This structure keeps auth, transport, normalization, and storage services independent and testable.
 
 ## Current capabilities
 - OAuth authentication for Google APIs.
-- Gmail read and draft/send workflows.
-- Google Calendar read and write workflows.
+- Gmail read, drafting, and sending capabilities.
+- Google Calendar read and write capabilities.
 - Provider payload normalization into internal Python DTOs.
 - SQLite persistence for threads, events, and sync cursors.
-
-## In progress
-- LLM interaction layer (`src/hermes/ports/llm.py` and `src/hermes/adapters/openai/` placeholders).
-- CLI and API entrypoints (`src/hermes/app/` placeholders).
+- LLM interaction layer.
+- CLI entrypoint.
 
 ## Tech stack
 - Python 3.11+
@@ -41,8 +38,8 @@ The project uses a ports-and-adapters (hexagonal) design so provider integration
    - Download the JSON
 4. Save the downloaded file as `.credentials/credentials.json`.
    - A safe template is provided at `.credentials/credentials.example.json`.
-5. Confirm `.env` has:
+5. Confirm that `.env` has:
    - `GOOGLE_CLIENT_SECRETS_PATH=.credentials/credentials.json`
    - `GOOGLE_TOKEN_PATH=.credentials/token.json`
-6. Run any command/path that initializes a Google client.
-   - On first run, browser OAuth opens and writes `.credentials/token.json`.
+6. Run any command that initializes a Google client.
+   - On first run, the browser OAuth opens and writes a token to `.credentials/token.json`.
